@@ -73,8 +73,8 @@ const S={
   cur:load('cad_cur',null),
   tab:'home',
   sim:{on:!navigator.bluetooth,cad:80,hr:135,spd:28},
-  bt:{hr:null,csc:null},
-  sensor:{spd:0,cad:0,hr:0,ts:0,th:0},
+  bt:{hr:null,csc:null,ftms:null},
+  sensor:{spd:0,cad:0,hr:0,pw:0,ts:0,th:0},
   wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0},
   edit:null
 };
@@ -311,6 +311,21 @@ function render(){$('#app').innerHTML=S.cur&&profile()?shell():home();setHH();lu
 function live(){if(S.sim.on)return{spd:S.sim.spd,cad:S.sim.cad,hr:S.sim.hr};
   const s=S.sensor,now=Date.now(),okC=now-s.ts<4000,okH=now-s.th<5000;return{spd:okC?s.spd:0,cad:okC?s.cad:0,hr:okH?s.hr:0}}
 function parseHR(v){const f=v.getUint8(0);S.sensor.hr=f&1?v.getUint16(1,true):v.getUint8(1);S.sensor.th=Date.now()}
+/* FTMS - Indoor Bike Data (0x2AD2): velocidade, cadência, potência e FC numa característica só */
+function parseFTMS(v){
+  const f=v.getUint16(0,true);let o=2;
+  const u16=()=>{const x=v.getUint16(o,true);o+=2;return x},s16=()=>{const x=v.getInt16(o,true);o+=2;return x};
+  if(!(f&1)){S.sensor.spd=u16()*0.01}        /* bit0=0: velocidade instantânea (0,01 km/h) */
+  if(f&2)o+=2;                                /* velocidade média */
+  if(f&4){S.sensor.cad=u16()*0.5}             /* cadência instantânea (0,5 rpm) */
+  if(f&8)o+=2;                                /* cadência média */
+  if(f&16)o+=3;                               /* distância total (uint24) */
+  if(f&32)o+=2;                               /* nível de resistência */
+  if(f&64){S.sensor.pw=s16()}                 /* potência instantânea (W) */
+  if(f&128)o+=2;                              /* potência média */
+  if(f&256)o+=5;                              /* energia gasta (2+2+1) */
+  if(f&512){const hr=v.getUint8(o);o+=1;if(hr>0){S.sensor.hr=hr;S.sensor.th=Date.now()}}
+  S.sensor.ts=Date.now()}
 let prevCsc=null;
 function parseCSC(v){const f=v.getUint8(0);let o=1,cur={};
   if(f&1){cur.wr=v.getUint32(o,true);cur.wt=v.getUint16(o+4,true);o+=6}
@@ -323,8 +338,8 @@ function parseCSC(v){const f=v.getUint8(0);let o=1,cur={};
   prevCsc=cur;S.sensor.ts=Date.now()}
 const IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 const BT_MSG=IOS?'No iPhone/iPad, Safari e Chrome não têm Bluetooth: abra este endereço no navegador Bluefy.':'Web Bluetooth não está disponível neste navegador (use Chrome/Edge em HTTPS ou localhost).';
-const devs={},rec={},BT_CFG={hr:['heart_rate','heart_rate_measurement'],csc:['cycling_speed_and_cadence','csc_measurement']};
-const BT_H={hr:e=>parseHR(e.target.value),csc:e=>parseCSC(e.target.value)}; /* referência fixa: evita ouvintes duplicados ao reconectar */
+const devs={},rec={},BT_CFG={hr:['heart_rate','heart_rate_measurement'],csc:['cycling_speed_and_cadence','csc_measurement'],ftms:['fitness_machine','indoor_bike_data']};
+const BT_H={hr:e=>parseHR(e.target.value),csc:e=>parseCSC(e.target.value),ftms:e=>parseFTMS(e.target.value)}; /* referência fixa: evita ouvintes duplicados ao reconectar */
 async function attach(kind,dev){const [svc,ch]=BT_CFG[kind];
   const srv=await dev.gatt.connect(),sv=await srv.getPrimaryService(svc),c=await sv.getCharacteristic(ch);
   c.addEventListener('characteristicvaluechanged',BT_H[kind]);await c.startNotifications();
@@ -339,11 +354,11 @@ let wake=null;
 async function wakeOn(){try{if('wakeLock' in navigator&&!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>{wake=null})}}catch(e){}}
 function wakeOff(){try{wake&&wake.release()}catch(e){}wake=null}
 document.addEventListener('visibilitychange',()=>{S.wo.last=Date.now();
-  if(document.visibilityState==='visible'){if(S.wo.running)wakeOn();['hr','csc'].forEach(k=>{if(devs[k]&&!S.bt[k])reconnect(k)})}});
+  if(document.visibilityState==='visible'){if(S.wo.running)wakeOn();['hr','csc','ftms'].forEach(k=>{if(devs[k]&&!S.bt[k])reconnect(k)})}});
 async function pair(kind,all){
   if(!navigator.bluetooth){toast(BT_MSG);return}
   if(!window.isSecureContext){toast('Bluetooth exige HTTPS ou localhost. Abra por um endereço https://');return}
-  const svc=kind==='hr'?'heart_rate':'cycling_speed_and_cadence';
+  const svc=BT_CFG[kind][0];
   toast('Procurando sensores... selecione o dispositivo na janela');
   try{
     /* all=true: lista todos os dispositivos BLE (útil quando o sensor não anuncia o serviço) */
@@ -368,8 +383,8 @@ function btPanel(){
   const sl=(k,l,min,max,u)=>`<label class="block text-sm mt-3"><span class="flex justify-between"><span>${l}</span><span><b id="sv-${k}" class="text-neon">${S.sim[k]}</b> ${u}</span></span><input type="range" min="${min}" max="${max}" value="${S.sim[k]}" oninput="setSim('${k}',this.value)"></label>`;
   return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold flex items-center gap-2 mb-1"><i data-lucide="bluetooth" class="w-5 h-5 text-neon"></i>Sensores</h3>
    ${navigator.bluetooth?'':`<p class="text-xs text-ember mb-2">${BT_MSG} Modo simulado ativado.</p>`}${IOS&&!('wakeLock' in navigator)?'<p class="text-xs text-zinc-400 mb-2">Para a tela não apagar durante o treino: Ajustes › Tela e Brilho › Bloqueio Automático › Nunca.</p>':''}
-   ${row('hr','heart-pulse','Frequência cardíaca')}${row('csc','activity','Velocidade e cadência')}
-   <p class="text-[11px] text-zinc-500 mt-1">Sensor não aparece? <button onclick="pair('hr',true)" class="underline hover:text-neon">listar todos (FC)</button> · <button onclick="pair('csc',true)" class="underline hover:text-neon">listar todos (veloc./cad.)</button></p>
+   ${row('ftms','bike','Bike / rolo inteligente (FTMS)')}${row('hr','heart-pulse','Frequência cardíaca')}${row('csc','activity','Velocidade e cadência (sensor)')}
+   <p class="text-[11px] text-zinc-500 mt-1">Sensor não aparece? <button onclick="pair('hr',true)" class="underline hover:text-neon">listar todos (FC)</button> · <button onclick="pair('csc',true)" class="underline hover:text-neon">listar todos (veloc./cad.)</button> · <button onclick="pair('ftms',true)" class="underline hover:text-neon">listar todos (bike FTMS)</button></p>
    <div class="border-t border-line mt-2 pt-3"><button onclick="toggleSim()" class="w-full flex items-center justify-between text-sm"><span>Modo simulado (sliders)</span><span class="w-10 h-5 rounded-full p-0.5 ${S.sim.on?'bg-neon':'bg-zinc-700'}"><span class="block w-4 h-4 rounded-full bg-ink transition-transform ${S.sim.on?'translate-x-5':''}"></span></span></button>
    ${S.sim.on?sl('spd','Velocidade',0,60,'km/h')+sl('cad','Cadência',0,130,'rpm')+sl('hr','Freq. cardíaca',50,200,'bpm'):''}</div></section>`}
 function tile(id,l,u,c=''){return `<div class="rounded-2xl bg-panel border border-line p-4"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-5xl font-bold tabular-nums ${c}"><span id="${id}">--</span> <span class="text-base text-zinc-500">${u}</span></div></div>`}
@@ -385,7 +400,7 @@ const sensorTxt=k=>sensorState(k)[0]+(S.bt[k]&&!S.sim.on?' · '+S.bt[k]:'');
 function sensorBox(){
   const row=(k,l,ic)=>`<div class="flex items-center gap-2 py-1 min-w-0"><i data-lucide="${ic}" class="w-4 h-4 text-zinc-400 shrink-0"></i><div class="flex-1 min-w-0"><div class="text-xs leading-tight truncate">${l}</div><div id="ss-t-${k}" class="text-[11px] text-zinc-500 truncate">${esc(sensorTxt(k))}</div></div><span id="ss-d-${k}" class="inline-block w-2.5 h-2.5 rounded-full shrink-0 ${sensorState(k)[1]}"></span></div>`;
   return `<section class="rounded-xl bg-panel border border-line px-3 py-2 shrink-0"><div class="flex items-center justify-between"><h3 class="font-display text-lg font-bold leading-none">Sensores</h3><button onclick="setTab('home')" class="text-[11px] px-2 py-1 rounded-md border border-line hover:border-neon">Gerenciar</button></div>
-   <div class="grid grid-cols-2 lg:grid-cols-1 gap-x-3">${row('hr','Freq. cardíaca','heart-pulse')}${row('csc','Velocidade e cadência','activity')}</div></section>`}
+   <div class="grid grid-cols-2 lg:grid-cols-1 gap-x-3">${row('ftms','Bike FTMS','bike')}${row('hr','Freq. cardíaca','heart-pulse')}${row('csc','Veloc. e cadência','activity')}</div></section>`}
 function treino(){
   const r=route(),w=S.wo;
   if(!r)return `<div class="p-10 text-center text-zinc-400 border border-dashed border-line rounded-2xl">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</div>`;
@@ -431,7 +446,7 @@ function updLive(){const L=live(),w=S.wo,r=route();if(!r)return;
   set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));const p=Math.min(1,w.dist/r.dist);
   const gr=grade(r,p),fc=factor(gr);set('m-grade',gr.toFixed(1)+'%');set('m-fac','×'+fc.toFixed(2));set('m-vspd',(L.spd*fc).toFixed(1));const b=$('#m-bar');if(b)b.style.width=p*100+'%';const e=$('#m-elev');if(e)e.innerHTML=elevSvg(r,p);
   const mp=$('#m-map');if(mp)mp.innerHTML=trackSvg(r,p);
-  ['hr','csc'].forEach(k=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensorTxt(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='inline-block w-2.5 h-2.5 rounded-full shrink-0 '+sensorState(k)[1]});
+  ['hr','csc','ftms'].forEach(k=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensorTxt(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='inline-block w-2.5 h-2.5 rounded-full shrink-0 '+sensorState(k)[1]});
   set('m-prog',Math.round(p*100)+'% · faltam '+Math.max(0,r.dist-w.dist).toFixed(2)+' km')}
 let tickN=0;
 /* tempo e distância usam o relógio real (Date.now), não a contagem de ticks: o iOS atrasa timers.
