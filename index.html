@@ -33,17 +33,23 @@ input[type=range]{accent-color:#0a78d2;width:100%}
 </style>
 </head>
 <body>
+<script>
+(function(){function show(t){var a=document.getElementById('app');if(!a||a.childNodes.length)return;
+a.innerHTML='<div style="padding:24px;font:16px/1.5 -apple-system,Helvetica,sans-serif;color:#fff;max-width:520px;margin:0 auto"><b style="font-size:20px">Andou!</b><p>'+t+'</p></div>'}
+window.addEventListener('error',function(e){show('Não foi possível iniciar o app neste navegador.<br><small style="color:#9dbddb">'+String(e.message||'erro').replace(/</g,'&lt;')+'</small>')});
+window.addEventListener('load',function(){setTimeout(function(){if(typeof tailwind==='undefined')show('O estilo do app (Tailwind) não carregou. Verifique a internet ou use um iOS/navegador mais recente.')},1500)})})();
+</script>
 <div id="app"></div>
 <div id="modal"></div>
 <div id="toast" class="fixed left-1/2 -translate-x-1/2 z-[60] bg-neon text-ink font-semibold text-sm px-4 py-2 rounded-full opacity-0 pointer-events-none" style="bottom:calc(1.25rem + env(safe-area-inset-bottom))"></div>
 <!-- sem "accept": o seletor de arquivos do iOS deixa .gpx cinza; a validação é feita ao ler o XML -->
-<input type="file" id="gpxFile" class="hidden">
+<input type="file" id="gpxFile" class="hidden" style="display:none">
 
 <script>
 /* ---------- Utilidades ---------- */
 const $=s=>document.querySelector(s);
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const load=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v??d}catch{return d}};
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const load=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch{return d}};
 const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Não foi possível salvar os dados')}};
 const uid=()=>Math.random().toString(36).slice(2,9);
 const fmt=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;return(h?h+':':'')+String(m).padStart(h?2:1,'0')+':'+String(r).padStart(2,'0')};
@@ -79,7 +85,7 @@ S.inten=INT[load('cad_inten','real')]?load('cad_inten','real'):'real';
 /* Fator aplicado à velocidade medida: subida reduz (≈0,5 a 8% no Realista), descida ajuda um pouco (máx. 1,5) */
 function factor(g){const k=INT[S.inten].k;return g>=0?Math.max(.2,1-.0625*g*k):Math.min(1.5,1-.03*g*k)}
 function setInten(v){if(!INT[v]||S.wo.dist>0||S.wo.running)return;S.inten=v;store('cad_inten',v);const p=profile();if(p){p.inten=v;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)})}render()}
-function applyInten(){const v=profile()?.inten||load('cad_inten','real');S.inten=INT[v]?v:'real'}
+function applyInten(){const pr=profile(),v=(pr&&pr.inten)||load('cad_inten','real');S.inten=INT[v]?v:'real'}
 const profile=()=>S.profiles.find(p=>p.id===S.cur);
 const route=()=>S.routes.find(r=>r.id===S.wo.route)||S.routes[0];
 const saveProfiles=()=>store('cad_profiles',S.profiles);
@@ -106,7 +112,7 @@ const fromW=x=>({id:x.id,routeId:x.route_id,routeName:x.route_name,date:+x.date,
 
 /* Fila de gravações (outbox): persiste no localStorage e reenvia quando a conexão voltar */
 let outbox=load('cad_outbox',[]),flushing=false;
-const pkOf=o=>o.row?(o.row.id??o.row.profile_id):null;
+const pkOf=o=>o.row?(o.row.id!=null?o.row.id:o.row.profile_id):null;
 function q(op){if(!sb)return;
   if(op.t==='up')outbox=outbox.filter(x=>!(x.t==='up'&&x.tb===op.tb&&pkOf(x)===pkOf(op)));
   outbox.push(op);store('cad_outbox',outbox);flush()}
@@ -141,7 +147,7 @@ async function pull(){
 /* Perfis precisam existir no banco antes dos treinos (chave estrangeira): a fila mantém a ordem de inserção. */
 
 /* ---------- Ranking simulado ---------- */
-function userBest(r,p=profile()){const t=(p?.history||[]).filter(h=>h.routeId===r.id&&h.done&&(h.inten||'off')===S.inten).map(h=>h.time);return t.length?Math.min(...t):null}
+function userBest(r,p=profile()){const t=((p&&p.history)||[]).filter(h=>h.routeId===r.id&&h.done&&(h.inten||'off')===S.inten).map(h=>h.time);return t.length?Math.min(...t):null}
 function board(r){const rows=[];
   S.profiles.forEach(p=>{const t=userBest(r,p);if(t)rows.push({name:p.name,time:t,me:p.id===S.cur})});
   return rows.sort((a,b)=>a.time-b.time).map((x,i)=>({...x,pos:i+1}));}
@@ -178,10 +184,10 @@ function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach
   let done='',rider='';
   if(p!=null){const {i,pos}=trackPos(T,p);
     if(p>0)done=`<path d="${d([...T.slice(0,i+1),pos])}" fill="none" stroke="#6ac3ff" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
-    const pp=profile(),x=pos[0],y=pos[1],ph=pp?.photo;
+    const pp=profile(),x=pos[0],y=pos[1],ph=pp&&pp.photo;
     rider=`<circle cx="${x}" cy="${y}" r="34" fill="#ffa13d" fill-opacity=".25"/>`+(ph
       ?`<defs><clipPath id="rc"><circle cx="${x}" cy="${y}" r="24"/></clipPath></defs><circle cx="${x}" cy="${y}" r="24" fill="#080f17"/><image href="${esc(ph)}" x="${x-24}" y="${y-24}" width="48" height="48" preserveAspectRatio="xMidYMid slice" clip-path="url(#rc)"/><circle cx="${x}" cy="${y}" r="24" fill="none" stroke="#ffa13d" stroke-width="5"/><circle cx="${x}" cy="${y}" r="27" fill="none" stroke="#fff" stroke-width="2"/>`
-      :`<circle cx="${x}" cy="${y}" r="24" fill="#ffa13d" stroke="#fff" stroke-width="4"/><text x="${x}" y="${y}" dy=".35em" text-anchor="middle" font-size="26" font-weight="700" fill="#000000">${esc((pp?.name||'🚴')[0].toUpperCase())}</text>`)}
+      :`<circle cx="${x}" cy="${y}" r="24" fill="#ffa13d" stroke="#fff" stroke-width="4"/><text x="${x}" y="${y}" dy=".35em" text-anchor="middle" font-size="26" font-weight="700" fill="#000000">${esc(((pp&&pp.name)||'🚴')[0].toUpperCase())}</text>`)}
   const road=mini?`<path d="${full}" fill="none" stroke="#6ac3ff" stroke-opacity=".75" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`
    :`<path d="${full}" fill="none" stroke="#000000" stroke-width="${sw+10}" stroke-linecap="round" stroke-linejoin="round"/><path d="${full}" fill="none" stroke="#2f6396" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
   const s=T[0],e=T[T.length-1],mk=(q,c)=>`<circle cx="${q[0]}" cy="${q[1]}" r="${sw*.95}" fill="${c}" stroke="#000000" stroke-width="4"/>`;
@@ -500,7 +506,7 @@ function parseGPX(txt,fallbackName){
   else{elev=simElev(fallbackName+dist);simElevated=true}
   const nm=(d.querySelector('trk > name')||d.querySelector('metadata > name')||d.querySelector('name'));
   const ds=d.querySelector('trk > desc')||d.querySelector('metadata > desc');
-  return{id:uid(),name:(nm?.textContent||fallbackName).trim(),desc:(ds?.textContent||'').trim(),photo:'',dist:+dist.toFixed(2),elev,track,simElev:simElevated,points:pts.length}}
+  return{id:uid(),name:((nm&&nm.textContent)||fallbackName).trim(),desc:((ds&&ds.textContent)||'').trim(),photo:'',dist:+dist.toFixed(2),elev,track,simElev:simElevated,points:pts.length}}
 $('#gpxFile').addEventListener('change',async ev=>{const f=ev.target.files[0];ev.target.value='';if(!f)return;
   try{const r=parseGPX(await f.text(),f.name.replace(/\.gpx$/i,''));S.edit=r;editRoute(r.id,true);toast(r.points+' pontos lidos · '+r.dist+' km')}
   catch(e){toast('Erro ao importar: '+e.message)}});
