@@ -174,7 +174,10 @@ function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach
   let done='',rider='';
   if(p!=null){const {i,pos}=trackPos(T,p);
     if(p>0)done=`<path d="${d([...T.slice(0,i+1),pos])}" fill="none" stroke="#b6ff3b" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
-    rider=`<circle cx="${pos[0]}" cy="${pos[1]}" r="46" fill="#ff7a1a" fill-opacity=".25"/><circle cx="${pos[0]}" cy="${pos[1]}" r="32" fill="#ff7a1a" stroke="#fff" stroke-width="5"/><text x="${pos[0]}" y="${pos[1]}" dy=".35em" text-anchor="middle" font-size="36">🚴</text>`}
+    const pp=profile(),x=pos[0],y=pos[1],ph=pp?.photo;
+    rider=`<circle cx="${x}" cy="${y}" r="52" fill="#ff7a1a" fill-opacity=".25"/>`+(ph
+      ?`<defs><clipPath id="rc"><circle cx="${x}" cy="${y}" r="40"/></clipPath></defs><circle cx="${x}" cy="${y}" r="40" fill="#1a2420"/><image href="${esc(ph)}" x="${x-40}" y="${y-40}" width="80" height="80" preserveAspectRatio="xMidYMid slice" clip-path="url(#rc)"/><circle cx="${x}" cy="${y}" r="40" fill="none" stroke="#ff7a1a" stroke-width="7"/><circle cx="${x}" cy="${y}" r="44" fill="none" stroke="#fff" stroke-width="3"/>`
+      :`<circle cx="${x}" cy="${y}" r="36" fill="#ff7a1a" stroke="#fff" stroke-width="5"/><text x="${x}" y="${y}" dy=".35em" text-anchor="middle" font-size="40" font-weight="700" fill="#0a0e0d">${esc((pp?.name||'🚴')[0].toUpperCase())}</text>`)}
   const road=mini?`<path d="${full}" fill="none" stroke="#b6ff3b" stroke-opacity=".75" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`
    :`<path d="${full}" fill="none" stroke="#0a0e0d" stroke-width="${sw+10}" stroke-linecap="round" stroke-linejoin="round"/><path d="${full}" fill="none" stroke="#3a4743" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
   const s=T[0],e=T[T.length-1],mk=(q,c)=>`<circle cx="${q[0]}" cy="${q[1]}" r="${sw*.95}" fill="${c}" stroke="#0a0e0d" stroke-width="4"/>`;
@@ -196,16 +199,33 @@ function home(){
   <p class="text-zinc-400 mb-6">Quem vai pedalar hoje?</p>
   <div class="space-y-3 mb-4">${list||'<div class="p-6 rounded-xl border border-dashed border-line text-center text-zinc-400">Nenhum perfil ainda. Crie o primeiro para começar a treinar.</div>'}</div>
   <button onclick="profileModal()" class="w-full py-3 rounded-xl bg-neon text-ink font-semibold flex items-center justify-center gap-2"><i data-lucide="user-plus" class="w-5 h-5"></i>Criar novo perfil</button></div></main>`;}
+const photoField=()=>`<div class="text-sm space-y-2"><div>Foto (opcional)</div>
+  <div class="flex items-center gap-3"><div id="pv" class="w-14 h-14 rounded-full bg-ink border border-line bg-cover bg-center shrink-0"></div>
+  <label class="flex-1 py-2 px-3 rounded-lg border border-line text-center cursor-pointer hover:border-neon">Escolher da galeria<input type="file" accept="image/*" class="hidden" onchange="pickPhoto(this)"></label></div>
+  <input type="hidden" name="pd"><input name="pp" type="url" placeholder="ou cole o link direto da imagem (https://i.ibb.co/…/foto.jpg)" class="${IN}" oninput="prevPhoto(this.value)">
+  <p class="text-xs text-zinc-500">Links como ibb.co/xxxx são páginas, não a imagem. Prefira escolher da galeria, ou use o "Link direto" do site de hospedagem.</p></div>`;
+function prevPhoto(u){const e=$('#pv');if(e)e.style.backgroundImage=u?`url('${cssUrl(u)}')`:''}
+function pickPhoto(inp){const f=inp.files[0];if(!f)return;const img=new Image(),fr=new FileReader();
+  fr.onload=()=>{img.onload=()=>{const N=160,c=document.createElement('canvas');c.width=c.height=N;const m=Math.min(img.width,img.height);
+      c.getContext('2d').drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,N,N);
+      const d=c.toDataURL('image/jpeg',.82),form=inp.closest('form');form.elements.pd.value=d;form.elements.pp.value='';prevPhoto(d)};
+    img.onerror=()=>toast('Não foi possível ler essa imagem');img.src=fr.result};
+  fr.readAsDataURL(f)}
+const photoOf=f=>f.pd.value||f.pp.value.trim();
 function profileModal(){openModal(`<h2 class="font-display text-3xl font-bold mb-4">Novo perfil</h2>
   <form onsubmit="saveProfile(event)" class="space-y-3">
   <label class="block text-sm">Nome<input name="pn" required maxlength="30" class="${IN} mt-1"></label>
   <div class="grid grid-cols-2 gap-3"><label class="block text-sm">Peso (kg)<input name="pw" type="number" min="20" max="250" step="0.1" required class="${IN} mt-1"></label>
   <label class="block text-sm">Altura (cm)<input name="ph" type="number" min="100" max="250" required class="${IN} mt-1"></label></div>
-  <label class="block text-sm">URL da foto (opcional)<input name="pp" type="url" placeholder="https://..." class="${IN} mt-1"></label>
+  ${photoField()}
   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">Salvar perfil</button></div></form>`)}
 function saveProfile(e){e.preventDefault();const f=e.target.elements;
-  const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:f.pp.value.trim(),inten:S.inten,history:[]};
+  const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:photoOf(f),inten:S.inten,history:[]};
   S.profiles.push(p);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();selectProfile(p.id)}
+function photoModal(){openModal(`<h2 class="font-display text-3xl font-bold mb-4">Alterar foto</h2>
+  <form onsubmit="savePhoto(event)" class="space-y-3">${photoField()}
+  <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">Salvar foto</button></div></form>`)}
+function savePhoto(e){e.preventDefault();const p=profile();p.photo=photoOf(e.target.elements);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();render()}
 function selectProfile(id){S.cur=id;store('cad_cur',id);applyInten();S.tab='home';render()}
 function switchProfile(){if(S.wo.running||S.wo.dist>0){if(!confirm('Há um treino em andamento. Sair e descartá-lo?'))return;resetWo()}S.cur=null;store('cad_cur',null);render()}
 function deleteProfile(){if(!confirm('Excluir este perfil e todo o histórico?'))return;resetWo();q({t:'del',tb:'profiles',col:'id',val:S.cur});S.profiles=S.profiles.filter(p=>p.id!==S.cur);saveProfiles();switchProfile()}
@@ -410,6 +430,7 @@ function perfil(){const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0),t
   const stat=(l,v)=>`<div class="rounded-xl bg-ink border border-line p-3"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-3xl font-bold text-neon">${v}</div></div>`;
   return `<div class="space-y-4"><section class="rounded-2xl bg-panel border border-line p-5"><div class="flex items-center gap-4 flex-wrap">${avatar(p,72)}
    <div class="flex-1 min-w-[160px]"><div class="font-display text-4xl font-bold">${esc(p.name)}</div><div class="text-sm text-zinc-400">${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)}</div></div>
+   <button onclick="photoModal()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="camera" class="w-4 h-4"></i>Alterar foto</button>
    <button onclick="deleteProfile()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember flex items-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i>Excluir perfil</button></div>
    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length)}${stat('Rotas com recorde',bests.length)}</div></section>
   <div class="grid md:grid-cols-2 gap-4"><section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-0.5">Melhores tempos</h3><p class="text-xs text-zinc-500 mb-2">Modo de inclinação: ${INT[S.inten].n} (recordes são separados por modo)</p>
