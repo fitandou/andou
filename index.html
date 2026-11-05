@@ -3,27 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a78d2">
 <title>Andou! – Ciclismo Indoor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-tailwind.config={theme:{extend:{colors:{neon:'#b6ff3b',ember:'#ff7a1a',ink:'#0a0e0d',panel:'#141a18',line:'#25302c'},fontFamily:{display:['"Barlow Condensed"','Impact','sans-serif'],sans:['Inter','system-ui','sans-serif']}}}}
+tailwind.config={theme:{extend:{colors:{
+  brand:'#0a78d2',neon:'#6ac3ff',ember:'#ffa13d',ink:'#000000',panel:'#080f17',line:'#17314a',
+  zinc:{300:'#c3d9ee',400:'#9dbddb',500:'#7a9dc0',600:'#4a6d92',700:'#2d4e73'}},
+  fontFamily:{display:['Archivo','"Arial Narrow"','Impact','sans-serif'],sans:['Figtree','system-ui','sans-serif']}}}}
 </script>
 <style>
-html{-webkit-text-size-adjust:100%;overscroll-behavior-y:none}
-body{background:#0a0e0d;color:#e8eeeb;font-family:Inter,system-ui,sans-serif;overscroll-behavior-y:none;
+html{-webkit-text-size-adjust:100%;overscroll-behavior-y:none;color-scheme:dark;background:#000}
+body{background:#000;color:#e6f1fb;font-family:Figtree,system-ui,sans-serif;overscroll-behavior-y:none;
   padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);padding-bottom:env(safe-area-inset-bottom)}
 button,select,label{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 /* iOS dá zoom ao focar campos com fonte < 16px */
 @supports(-webkit-touch-callout:none){input:not([type=range]),select,textarea{font-size:16px!important}}
 /* altura dinâmica (barra do Safari/Bluefy); ignorado onde dvh não existe */
 .min-h-screen{min-height:100dvh!important}
-.font-display{letter-spacing:.01em}
-button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #b6ff3b;outline-offset:2px}
-input[type=range]{accent-color:#b6ff3b;width:100%}
+.font-display{letter-spacing:0;font-stretch:78%}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #6ac3ff;outline-offset:2px}
+input[type=range]{accent-color:#0a78d2;width:100%}
 #toast{transition:opacity .25s}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -88,7 +92,7 @@ const SUPABASE_URL='https://nxerskmlvqxpgckpmvne.supabase.co';
 const SUPABASE_ANON_KEY='sb_publishable_1bJgblIKv3S288IEM6P8pA_JJ4cJNe6';
 const sb=(SUPABASE_URL&&SUPABASE_ANON_KEY&&window.supabase)?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 S.sync=sb?'ok':'off';
-const SYNC_UI={ok:['bg-neon','Dados sincronizados com o Supabase'],err:['bg-ember','Sem conexão: alterações ficam pendentes e são enviadas depois'],off:['bg-zinc-600','Supabase não configurado: dados salvos só neste aparelho']};
+const SYNC_UI={ok:['bg-emerald-300','Dados sincronizados com o Supabase'],err:['bg-ember','Sem conexão: alterações ficam pendentes e são enviadas depois'],off:['bg-zinc-600','Supabase não configurado: dados salvos só neste aparelho']};
 const syncDot=()=>`<span id="sync" title="${SYNC_UI[S.sync][1]}" class="inline-block w-2.5 h-2.5 rounded-full shrink-0 ${SYNC_UI[S.sync][0]}"></span>`;
 function setSync(st){S.sync=st;const e=$('#sync');if(e){e.className='inline-block w-2.5 h-2.5 rounded-full shrink-0 '+SYNC_UI[st][0];e.title=SYNC_UI[st][1]}}
 
@@ -146,17 +150,17 @@ const rankHtml=(rows,n)=>!rows.length?'<li class="py-1.5 text-zinc-500 text-sm">
 /* ---------- Avatar / capa / altimetria ---------- */
 function avatar(p,size=48){const st=`width:${size}px;height:${size}px;font-size:${size*.45}px`;
   return p.photo?`<div class="rounded-full bg-cover bg-center border border-line shrink-0" style="${st};background-image:url('${cssUrl(p.photo)}')"></div>`
-  :`<div class="rounded-full bg-neon/15 text-neon grid place-items-center font-display font-bold shrink-0" style="${st}">${esc((p.name||'?')[0].toUpperCase())}</div>`;}
-function cover(r,cls='h-36'){const hue=hash(r.id)%360;
-  const bg=r.photo?`background-image:url('${cssUrl(r.photo)}')`:`background-image:linear-gradient(135deg,hsl(${hue} 55% 22%),hsl(${(hue+50)%360} 60% 12%))`;
+  :`<div class="rounded-full bg-neon/20 text-white grid place-items-center font-display font-bold shrink-0" style="${st}">${esc((p.name||'?')[0].toUpperCase())}</div>`;}
+function cover(r,cls='h-36'){const hue=198+hash(r.id)%46;
+  const bg=r.photo?`background-image:url('${cssUrl(r.photo)}')`:`background-image:linear-gradient(135deg,hsl(${hue} 85% 34%),hsl(${hue+14} 80% 13%))`;
   return `<div class="${cls} bg-cover bg-center w-full relative overflow-hidden" style="${bg}">${r.photo?'':`<div class="absolute inset-0 p-2">${trackSvg(r,null,true)}</div>`}</div>`;}
 function elevStats(e){let g=0;for(let i=1;i<e.length;i++)if(e[i]>e[i-1])g+=e[i]-e[i-1];return{gain:Math.round(g),max:Math.round(Math.max(...e)),min:Math.round(Math.min(...e))}}
 function elevSvg(r,p=null){const e=r.elev,mn=Math.min(...e),mx=Math.max(...e),rg=Math.max(mx-mn,1),W=600,H=110;
   const pts=e.map((v,i)=>[i/(e.length-1)*W,H-8-(v-mn)/rg*(H-24)]);
   const line=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
   let m='';if(p!=null){const x=p*W,i=Math.min(e.length-1,Math.round(p*(e.length-1))),y=pts[i][1];
-    m=`<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#ff7a1a" stroke-width="2" stroke-dasharray="4 3"/><circle cx="${x}" cy="${y}" r="6" fill="#ff7a1a" stroke="#0a0e0d" stroke-width="2"/>`}
-  return `<svg viewBox="0 0 ${W} ${H}" class="w-full h-24" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H}Z" fill="#b6ff3b" fill-opacity=".14"/><path d="${line}" fill="none" stroke="#b6ff3b" stroke-width="2.5" stroke-linejoin="round"/>${m}</svg>`;}
+    m=`<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#ffa13d" stroke-width="2" stroke-dasharray="4 3"/><circle cx="${x}" cy="${y}" r="6" fill="#ffa13d" stroke="#000000" stroke-width="2"/>`}
+  return `<svg viewBox="0 0 ${W} ${H}" class="w-full h-24" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H}Z" fill="#6ac3ff" fill-opacity=".14"/><path d="${line}" fill="none" stroke="#6ac3ff" stroke-width="2.5" stroke-linejoin="round"/>${m}</svg>`;}
 /* ---------- Traçado do circuito ---------- */
 function normTrack(pts){let x0=1e18,y0=1e18,x1=-1e18,y1=-1e18;
   pts.forEach(q=>{x0=Math.min(x0,q[0]);x1=Math.max(x1,q[0]);y0=Math.min(y0,q[1]);y1=Math.max(y1,q[1])});
@@ -173,21 +177,21 @@ function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach
   const loop=Math.hypot(T[0][0]-T[T.length-1][0],T[0][1]-T[T.length-1][1])<45;
   let done='',rider='';
   if(p!=null){const {i,pos}=trackPos(T,p);
-    if(p>0)done=`<path d="${d([...T.slice(0,i+1),pos])}" fill="none" stroke="#b6ff3b" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    if(p>0)done=`<path d="${d([...T.slice(0,i+1),pos])}" fill="none" stroke="#6ac3ff" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
     const pp=profile(),x=pos[0],y=pos[1],ph=pp?.photo;
-    rider=`<circle cx="${x}" cy="${y}" r="52" fill="#ff7a1a" fill-opacity=".25"/>`+(ph
-      ?`<defs><clipPath id="rc"><circle cx="${x}" cy="${y}" r="40"/></clipPath></defs><circle cx="${x}" cy="${y}" r="40" fill="#1a2420"/><image href="${esc(ph)}" x="${x-40}" y="${y-40}" width="80" height="80" preserveAspectRatio="xMidYMid slice" clip-path="url(#rc)"/><circle cx="${x}" cy="${y}" r="40" fill="none" stroke="#ff7a1a" stroke-width="7"/><circle cx="${x}" cy="${y}" r="44" fill="none" stroke="#fff" stroke-width="3"/>`
-      :`<circle cx="${x}" cy="${y}" r="36" fill="#ff7a1a" stroke="#fff" stroke-width="5"/><text x="${x}" y="${y}" dy=".35em" text-anchor="middle" font-size="40" font-weight="700" fill="#0a0e0d">${esc((pp?.name||'🚴')[0].toUpperCase())}</text>`)}
-  const road=mini?`<path d="${full}" fill="none" stroke="#b6ff3b" stroke-opacity=".75" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`
-   :`<path d="${full}" fill="none" stroke="#0a0e0d" stroke-width="${sw+10}" stroke-linecap="round" stroke-linejoin="round"/><path d="${full}" fill="none" stroke="#3a4743" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
-  const s=T[0],e=T[T.length-1],mk=(q,c)=>`<circle cx="${q[0]}" cy="${q[1]}" r="${sw*.95}" fill="${c}" stroke="#0a0e0d" stroke-width="4"/>`;
-  const marks=mini?'':mk(s,'#fff')+(loop?'':mk(e,'#ff7a1a'));
+    rider=`<circle cx="${x}" cy="${y}" r="34" fill="#ffa13d" fill-opacity=".25"/>`+(ph
+      ?`<defs><clipPath id="rc"><circle cx="${x}" cy="${y}" r="24"/></clipPath></defs><circle cx="${x}" cy="${y}" r="24" fill="#080f17"/><image href="${esc(ph)}" x="${x-24}" y="${y-24}" width="48" height="48" preserveAspectRatio="xMidYMid slice" clip-path="url(#rc)"/><circle cx="${x}" cy="${y}" r="24" fill="none" stroke="#ffa13d" stroke-width="5"/><circle cx="${x}" cy="${y}" r="27" fill="none" stroke="#fff" stroke-width="2"/>`
+      :`<circle cx="${x}" cy="${y}" r="24" fill="#ffa13d" stroke="#fff" stroke-width="4"/><text x="${x}" y="${y}" dy=".35em" text-anchor="middle" font-size="26" font-weight="700" fill="#000000">${esc((pp?.name||'🚴')[0].toUpperCase())}</text>`)}
+  const road=mini?`<path d="${full}" fill="none" stroke="#6ac3ff" stroke-opacity=".75" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`
+   :`<path d="${full}" fill="none" stroke="#000000" stroke-width="${sw+10}" stroke-linecap="round" stroke-linejoin="round"/><path d="${full}" fill="none" stroke="#2f6396" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const s=T[0],e=T[T.length-1],mk=(q,c)=>`<circle cx="${q[0]}" cy="${q[1]}" r="${sw*.95}" fill="${c}" stroke="#000000" stroke-width="4"/>`;
+  const marks=mini?'':mk(s,'#fff')+(loop?'':mk(e,'#ffa13d'));
   return `<svg viewBox="${-pad} ${-pad} ${w+2*pad} ${h+2*pad}" class="w-full h-full" role="img" aria-label="Mapa do circuito">${road}${done}${marks}${rider}</svg>`}
 function grade(r,p){const e=r.elev,n=e.length-1,i=Math.min(n-1,Math.floor(p*n)),seg=r.dist*1000/n,a=Math.max(0,i-1),b=Math.min(n,i+2);
   return Math.max(-15,Math.min(15,(e[b]-e[a])/(seg*(b-a))*100))}
 
 /* ---------- Modal ---------- */
-function openModal(html,w='max-w-lg'){$('#modal').innerHTML=`<div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeModal()"><div class="bg-panel border border-line rounded-t-2xl sm:rounded-2xl w-full ${w} overflow-y-auto p-5" style="max-height:92vh;max-height:92dvh;padding-bottom:max(1.25rem,env(safe-area-inset-bottom))">${html}</div></div>`;lucide.createIcons()}
+function openModal(html,w='max-w-lg'){$('#modal').innerHTML=`<div class="fixed inset-0 z-50 bg-ink/80 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeModal()"><div class="bg-panel border border-line rounded-t-2xl sm:rounded-2xl w-full ${w} overflow-y-auto p-5" style="max-height:92vh;max-height:92dvh;padding-bottom:max(1.25rem,env(safe-area-inset-bottom))">${html}</div></div>`;lucide.createIcons()}
 function closeModal(){$('#modal').innerHTML=''}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 
@@ -198,7 +202,7 @@ function home(){
   <div class="flex items-center gap-2 mb-1 text-neon"><i data-lucide="bike" class="w-7 h-7"></i><span class="font-display text-4xl font-extrabold">Andou!</span></div>
   <p class="text-zinc-400 mb-6">Quem vai pedalar hoje?</p>
   <div class="space-y-3 mb-4">${list||'<div class="p-6 rounded-xl border border-dashed border-line text-center text-zinc-400">Nenhum perfil ainda. Crie o primeiro para começar a treinar.</div>'}</div>
-  <button onclick="profileModal()" class="w-full py-3 rounded-xl bg-neon text-ink font-semibold flex items-center justify-center gap-2"><i data-lucide="user-plus" class="w-5 h-5"></i>Criar novo perfil</button></div></main>`;}
+  <button onclick="profileModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="user-plus" class="w-5 h-5"></i>Criar novo perfil</button></div></main>`;}
 const photoField=()=>`<div class="text-sm space-y-2"><div>Foto (opcional)</div>
   <div class="flex items-center gap-3"><div id="pv" class="w-14 h-14 rounded-full bg-ink border border-line bg-cover bg-center shrink-0"></div>
   <label class="flex-1 py-2 px-3 rounded-lg border border-line text-center cursor-pointer hover:border-neon">Escolher da galeria<input type="file" accept="image/*" class="hidden" onchange="pickPhoto(this)"></label></div>
@@ -218,13 +222,13 @@ function profileModal(){openModal(`<h2 class="font-display text-3xl font-bold mb
   <div class="grid grid-cols-2 gap-3"><label class="block text-sm">Peso (kg)<input name="pw" type="number" min="20" max="250" step="0.1" required class="${IN} mt-1"></label>
   <label class="block text-sm">Altura (cm)<input name="ph" type="number" min="100" max="250" required class="${IN} mt-1"></label></div>
   ${photoField()}
-  <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">Salvar perfil</button></div></form>`)}
+  <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar perfil</button></div></form>`)}
 function saveProfile(e){e.preventDefault();const f=e.target.elements;
   const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:photoOf(f),inten:S.inten,history:[]};
   S.profiles.push(p);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();selectProfile(p.id)}
 function photoModal(){openModal(`<h2 class="font-display text-3xl font-bold mb-4">Alterar foto</h2>
   <form onsubmit="savePhoto(event)" class="space-y-3">${photoField()}
-  <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">Salvar foto</button></div></form>`)}
+  <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar foto</button></div></form>`)}
 function savePhoto(e){e.preventDefault();const p=profile();p.photo=photoOf(e.target.elements);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();render()}
 function selectProfile(id){S.cur=id;store('cad_cur',id);applyInten();S.tab='home';render()}
 function switchProfile(){if(S.wo.running||S.wo.dist>0){if(!confirm('Há um treino em andamento. Sair e descartá-lo?'))return;resetWo()}S.cur=null;store('cad_cur',null);render()}
@@ -266,7 +270,7 @@ function homeTab(){
     <div class="min-w-0"><div class="font-display text-2xl font-bold truncate">${esc(rec.r.name)}</div>
      <div class="text-xs text-zinc-400 truncate">${rec.r.dist.toFixed(1)} km · +${elevStats(rec.r.elev).gain} m · ${userBest(rec.r)?'Seu recorde '+fmt(userBest(rec.r)):'Sem recorde'}</div>
      <div class="text-xs text-zinc-500 truncate">${rec.why}</div></div>
-    <button onclick="startNow('${rec.r.id}')" class="w-full py-2.5 rounded-lg bg-ember text-ink font-semibold flex items-center justify-center gap-2"><i data-lucide="play" class="w-4 h-4"></i>Iniciar agora</button></section>`
+    <button onclick="startNow('${rec.r.id}')" class="w-full py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="play" class="w-4 h-4"></i>Iniciar agora</button></section>`
    :`<section class="rounded-2xl border border-dashed border-line p-4 text-center text-zinc-400 text-sm lg:flex-1 grid place-items-center">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</section>`;
   return `<div class="max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-3 lg:h-full">
    <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-3 lg:min-h-0">
@@ -278,7 +282,7 @@ function homeTab(){
     <section class="rounded-2xl bg-gradient-to-br from-neon/15 to-panel border border-neon/30 p-3 lg:p-5 flex flex-col justify-center gap-2 lg:flex-1 lg:min-h-0">
      <div class="flex items-center justify-between text-neon text-xs font-semibold"><span class="flex items-center gap-1.5"><i data-lucide="sparkles" class="w-4 h-4"></i>Mensagem do dia</span><button onclick="nextMsg()" class="flex items-center gap-1 text-zinc-400 hover:text-neon"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Outra</button></div>
      <p class="font-display text-xl lg:text-4xl font-bold leading-tight">${motivMsg(p)}</p></section>
-    <button onclick="setTab('rotas')" class="w-full py-3 lg:py-5 rounded-2xl bg-neon text-ink font-display text-3xl lg:text-4xl font-extrabold flex items-center justify-center gap-3 shrink-0 shadow-[0_0_30px_rgba(182,255,59,.25)]"><i data-lucide="bike" class="w-8 h-8"></i>TREINAR<i data-lucide="arrow-right" class="w-7 h-7"></i></button>
+    <button onclick="setTab('rotas')" class="w-full py-3 lg:py-5 rounded-2xl bg-brand text-white font-display text-3xl lg:text-4xl font-extrabold flex items-center justify-center gap-3 shrink-0 shadow-[0_8px_32px_rgba(10,120,210,.55)]"><i data-lucide="bike" class="w-8 h-8"></i>TREINAR<i data-lucide="arrow-right" class="w-7 h-7"></i></button>
    </div>
    <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-2 lg:min-h-0">${recHtml}
     <div class="lg:shrink-0 lg:max-h-[48%] lg:overflow-y-auto rounded-2xl">${btPanel()}</div></div>
@@ -286,11 +290,11 @@ function homeTab(){
 
 /* ---------- Estrutura principal ---------- */
 function shell(){const p=profile();
-  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-neon text-neon':'border-transparent text-zinc-400 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4"></i>${l}${id==='treino'&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}</button>`;
-  return `<header class="border-b border-line bg-panel/60 sticky top-0 z-30 backdrop-blur"><div class="max-w-6xl mx-auto px-4 flex items-center gap-4 flex-wrap">
-   <div class="flex items-center gap-2 text-neon py-3"><i data-lucide="bike" class="w-6 h-6"></i><span class="font-display text-3xl font-extrabold">Andou!</span></div>
+  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-white text-white':'border-transparent text-white/70 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4"></i>${l}${id==='treino'&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}</button>`;
+  return `<header class="bg-brand border-b border-white/15 sticky top-0 z-30"><div class="max-w-6xl mx-auto px-4 flex items-center gap-4 flex-wrap">
+   <div class="flex items-center gap-2 text-white py-3"><i data-lucide="bike" class="w-6 h-6"></i><span class="font-display text-3xl font-extrabold">Andou!</span></div>
    <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('rotas','map','Rotas')}${tab('treino','gauge','Treino')}${tab('perfil','user','Perfil & Histórico')}</nav>
-   <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-zinc-500"></i></button></div></header>
+   <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-white/80"></i></button></div></header>
   ${S.tab==='home'||S.tab==='treino'?`<main class="p-3" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${S.tab==='home'?homeTab():treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${S.tab==='perfil'?perfil():rotas()}</main>`}`}
 function setTab(t){S.tab=t;render()}
 function setHH(){const e=document.querySelector('header');if(e)document.documentElement.style.setProperty('--hh',e.offsetHeight+'px')}
@@ -344,7 +348,7 @@ function setSim(k,v){S.sim[k]=+v;const el=$('#sv-'+k);if(el)el.textContent=v;upd
 
 /* ---------- Treino ---------- */
 function btPanel(){
-  const dot=(on)=>`<span class="inline-block w-2.5 h-2.5 rounded-full ${on?'bg-neon shadow-[0_0_8px_#b6ff3b]':'bg-zinc-600'}"></span>`;
+  const dot=(on)=>`<span class="inline-block w-2.5 h-2.5 rounded-full ${on?'bg-neon shadow-[0_0_8px_#6ac3ff]':'bg-zinc-600'}"></span>`;
   const row=(k,ic,l)=>`<div class="flex items-center gap-3 py-2"><i data-lucide="${ic}" class="w-5 h-5 text-zinc-400"></i><div class="flex-1 min-w-0"><div class="text-sm">${l}</div><div class="text-xs text-zinc-500 truncate">${S.bt[k]?esc(S.bt[k]):'Desconectado'}</div></div>${dot(!!S.bt[k])}<button onclick="pair('${k}')" class="text-xs px-3 py-1.5 rounded-lg border border-line hover:border-neon">${S.bt[k]?'Trocar':'Parear'}</button></div>`;
   const sl=(k,l,min,max,u)=>`<label class="block text-sm mt-3"><span class="flex justify-between"><span>${l}</span><span><b id="sv-${k}" class="text-neon">${S.sim[k]}</b> ${u}</span></span><input type="range" min="${min}" max="${max}" value="${S.sim[k]}" oninput="setSim('${k}',this.value)"></label>`;
   return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold flex items-center gap-2 mb-1"><i data-lucide="bluetooth" class="w-5 h-5 text-neon"></i>Sensores</h3>
@@ -377,7 +381,7 @@ function treino(){
     ${started?'':`<button onclick="setTab('rotas')" class="px-3 py-2 rounded-lg border border-line text-sm hover:border-neon flex items-center gap-2"><i data-lucide="map" class="w-4 h-4"></i>Trocar rota</button>`}
     <select onchange="setInten(this.value)" ${started?'disabled':''} aria-label="Intensidade da inclinação" title="Quanto a inclinação da rota reduz (subida) ou ajuda (descida) o seu avanço" class="${IN} w-auto disabled:opacity-50">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${S.inten===k?'selected':''}>Inclinação: ${v.n}</option>`).join('')}</select>
     ${S.sim.on?`<select onchange="S.wo.mult=+this.value" class="${IN} w-auto" title="Acelera o tempo da simulação">${[1,10,30,60].map(m=>`<option value="${m}" ${w.mult===m?'selected':''}>${m}x</option>`).join('')}</select>`:''}
-    <button onclick="toggleWo()" class="px-5 py-2 rounded-lg bg-neon text-ink font-semibold flex items-center gap-2"><i data-lucide="${w.running?'pause':'play'}" class="w-4 h-4"></i>${w.running?'Pausar':started?'Retomar':'Iniciar'}</button>
+    <button onclick="toggleWo()" class="px-5 py-2 rounded-lg bg-brand text-white font-semibold flex items-center gap-2"><i data-lucide="${w.running?'pause':'play'}" class="w-4 h-4"></i>${w.running?'Pausar':started?'Retomar':'Iniciar'}</button>
     ${started?`<button onclick="finish(false)" class="px-4 py-2 rounded-lg border border-ember text-ember font-semibold flex items-center gap-2"><i data-lucide="flag" class="w-4 h-4"></i>Finalizar</button>`:''}</section>
    <div class="flex-1 min-h-0 flex flex-col gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
     <div class="flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 lg:col-span-3">
@@ -441,14 +445,14 @@ function perfil(){const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0),t
 /* ---------- Biblioteca de Rotas ---------- */
 function rotas(){
   return `<div class="flex items-center justify-between mb-4 gap-3 flex-wrap"><h2 class="font-display text-4xl font-bold">Biblioteca de rotas</h2>
-   <button onclick="$('#gpxFile').click()" class="px-4 py-2.5 rounded-lg bg-neon text-ink font-semibold flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i>Importar .GPX</button></div>
+   <button onclick="$('#gpxFile').click()" class="px-4 py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i>Importar .GPX</button></div>
   <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">${S.routes.map(r=>{const b=userBest(r),es=elevStats(r.elev);
    return `<article class="rounded-2xl bg-panel border border-line overflow-hidden flex flex-col"><button onclick="routeDetail('${r.id}')" class="text-left">${cover(r)}</button>
     <div class="p-4 flex-1 flex flex-col gap-2"><h3 class="font-display text-2xl font-bold leading-tight">${esc(r.name)}</h3>
     <div class="text-xs text-zinc-400">${r.dist.toFixed(1)} km · +${es.gain} m · ${b?'Seu recorde '+fmt(b):'Sem recorde'}</div>
     <p class="text-sm text-zinc-300 line-clamp-2">${esc(r.desc)||'Sem descrição.'}</p>
     <ol class="text-xs">${rankHtml(board(r),3)}</ol>
-    <div class="flex gap-2 mt-auto pt-2"><button onclick="routeDetail('${r.id}')" class="flex-1 py-2 rounded-lg border border-line text-sm hover:border-neon">Detalhes</button><button onclick="trainOn('${r.id}')" class="flex-1 py-2 rounded-lg bg-neon text-ink text-sm font-semibold">Treinar</button></div></div></article>`}).join('')}</div>`}
+    <div class="flex gap-2 mt-auto pt-2"><button onclick="routeDetail('${r.id}')" class="flex-1 py-2 rounded-lg border border-line text-sm hover:border-neon">Detalhes</button><button onclick="trainOn('${r.id}')" class="flex-1 py-2 rounded-lg bg-brand text-white text-sm font-semibold">Treinar</button></div></div></article>`}).join('')}</div>`}
 function trainOn(id){if(S.wo.dist>0||S.wo.running){toast('Finalize o treino atual antes de trocar de rota');S.tab='treino';render();return}S.wo.route=id;closeModal();setTab('treino')}
 function routeDetail(id){const r=S.routes.find(x=>x.id===id);if(!r)return;const es=elevStats(r.elev),b=userBest(r);
   openModal(`<div class="-m-5 mb-4">${cover(r,'h-48')}</div><div class="flex justify-between items-start gap-3"><h2 class="font-display text-4xl font-bold leading-tight">${esc(r.name)}</h2><button onclick="closeModal()" class="text-zinc-400 hover:text-white"><i data-lucide="x"></i></button></div>
@@ -457,7 +461,7 @@ function routeDetail(id){const r=S.routes.find(x=>x.id===id);if(!r)return;const 
    <div class="text-xs text-zinc-400 mb-1">Circuito${r.track?'':' (traçado simulado)'}</div><div class="h-64 rounded-xl bg-ink border border-line p-2 mb-3">${trackSvg(r,0)}</div>
    <div class="text-xs text-zinc-400">Altimetria${r.demo||r.simElev?' (simulada)':''}</div>${elevSvg(r)}
    <h3 class="font-display text-2xl font-bold mt-3">Ranking completo</h3><ol class="text-sm divide-y divide-line">${rankHtml(board(r),20)}</ol>
-   <div class="flex gap-2 mt-4"><button onclick="editRoute('${r.id}')" class="flex-1 py-2.5 rounded-lg border border-line flex items-center justify-center gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>Editar</button><button onclick="delRoute('${r.id}')" class="py-2.5 px-4 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember"><i data-lucide="trash-2" class="w-4 h-4"></i></button><button onclick="trainOn('${r.id}')" class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">Treinar</button></div>`,'max-w-2xl')}
+   <div class="flex gap-2 mt-4"><button onclick="editRoute('${r.id}')" class="flex-1 py-2.5 rounded-lg border border-line flex items-center justify-center gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>Editar</button><button onclick="delRoute('${r.id}')" class="py-2.5 px-4 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember"><i data-lucide="trash-2" class="w-4 h-4"></i></button><button onclick="trainOn('${r.id}')" class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Treinar</button></div>`,'max-w-2xl')}
 function delRoute(id){if(!confirm('Excluir esta rota da biblioteca?'))return;S.routes=S.routes.filter(r=>r.id!==id);if(S.wo.route===id)S.wo.route=null;saveRoutes();q({t:'del',tb:'routes',col:'id',val:id});closeModal();render()}
 function editRoute(id,isNew=false){const r=isNew?S.edit:S.routes.find(x=>x.id===id);S.edit={...r,isNew};
   openModal(`<h2 class="font-display text-3xl font-bold mb-4">${isNew?'Salvar rota importada':'Editar rota'}</h2><form onsubmit="saveRoute(event)" class="space-y-3">
@@ -465,7 +469,7 @@ function editRoute(id,isNew=false){const r=isNew?S.edit:S.routes.find(x=>x.id===
    <label class="block text-sm">Descrição<textarea name="rd" rows="3" maxlength="300" class="${IN} mt-1">${esc(r.desc)}</textarea></label>
    <label class="block text-sm">URL da foto de capa<input name="rp" type="url" value="${esc(r.photo)}" placeholder="https://..." class="${IN} mt-1"></label>
    <label class="block text-sm">Distância total (km)<input name="rk" type="number" step="0.01" min="0.1" required value="${(+r.dist).toFixed(2)}" class="${IN} mt-1"></label>
-   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">${isNew?'Adicionar à biblioteca':'Salvar alterações'}</button></div></form>`)}
+   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">${isNew?'Adicionar à biblioteca':'Salvar alterações'}</button></div></form>`)}
 function saveRoute(e){e.preventDefault();const f=e.target.elements,r={...S.edit};
   r.name=f.rn.value.trim();r.desc=f.rd.value.trim();r.photo=f.rp.value.trim();r.dist=+f.rk.value;
   const isNew=r.isNew;delete r.isNew;
