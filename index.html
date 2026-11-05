@@ -340,15 +340,24 @@ async function wakeOn(){try{if('wakeLock' in navigator&&!wake){wake=await naviga
 function wakeOff(){try{wake&&wake.release()}catch(e){}wake=null}
 document.addEventListener('visibilitychange',()=>{S.wo.last=Date.now();
   if(document.visibilityState==='visible'){if(S.wo.running)wakeOn();['hr','csc'].forEach(k=>{if(devs[k]&&!S.bt[k])reconnect(k)})}});
-async function pair(kind){
+async function pair(kind,all){
   if(!navigator.bluetooth){toast(BT_MSG);return}
-  const svc=kind==='hr'?'heart_rate':'cycling_speed_and_cadence',ch=kind==='hr'?'heart_rate_measurement':'csc_measurement';
-  try{const dev=await navigator.bluetooth.requestDevice({filters:[{services:[svc]}]});
+  if(!window.isSecureContext){toast('Bluetooth exige HTTPS ou localhost. Abra por um endereço https://');return}
+  const svc=kind==='hr'?'heart_rate':'cycling_speed_and_cadence';
+  toast('Procurando sensores... selecione o dispositivo na janela');
+  try{
+    /* all=true: lista todos os dispositivos BLE (útil quando o sensor não anuncia o serviço) */
+    const opts=all?{acceptAllDevices:true,optionalServices:[svc]}:{filters:[{services:[svc]}]};
+    const dev=await navigator.bluetooth.requestDevice(opts);
     const old=devs[kind];devs[kind]=dev;if(old&&old!==dev){try{old.gatt.disconnect()}catch(_){}}
     dev.addEventListener('gattserverdisconnected',()=>{if(devs[kind]!==dev)return;S.bt[kind]=null;if(kind==='csc')prevCsc=null;render();setTimeout(()=>reconnect(kind),1500)});
+    toast('Conectando a '+(dev.name||'sensor')+'...');
     await attach(kind,dev);
     S.sim.on=false;render();toast('Sensor conectado: '+S.bt[kind])}
-  catch(e){if(e.name!=='NotFoundError')toast('Falha ao conectar: '+(e.message||e.name))}}
+  catch(e){
+    if(e.name==='NotFoundError')toast('Nenhum sensor selecionado. Acorde o sensor (gire a pedivela / ponha a cinta) e tente de novo, ou use "Mostrar todos".');
+    else if(e.name==='SecurityError')toast('Bluetooth bloqueado aqui (página dentro de iframe ou sem permissão). Abra a página direto no Chrome.');
+    else toast('Falha ao conectar: '+(e.message||e.name))}}
 function toggleSim(){S.sim.on=!S.sim.on;render()}
 function setSim(k,v){S.sim[k]=+v;const el=$('#sv-'+k);if(el)el.textContent=v;updLive()}
 
@@ -360,6 +369,7 @@ function btPanel(){
   return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold flex items-center gap-2 mb-1"><i data-lucide="bluetooth" class="w-5 h-5 text-neon"></i>Sensores</h3>
    ${navigator.bluetooth?'':`<p class="text-xs text-ember mb-2">${BT_MSG} Modo simulado ativado.</p>`}${IOS&&!('wakeLock' in navigator)?'<p class="text-xs text-zinc-400 mb-2">Para a tela não apagar durante o treino: Ajustes › Tela e Brilho › Bloqueio Automático › Nunca.</p>':''}
    ${row('hr','heart-pulse','Frequência cardíaca')}${row('csc','activity','Velocidade e cadência')}
+   <p class="text-[11px] text-zinc-500 mt-1">Sensor não aparece? <button onclick="pair('hr',true)" class="underline hover:text-neon">listar todos (FC)</button> · <button onclick="pair('csc',true)" class="underline hover:text-neon">listar todos (veloc./cad.)</button></p>
    <div class="border-t border-line mt-2 pt-3"><button onclick="toggleSim()" class="w-full flex items-center justify-between text-sm"><span>Modo simulado (sliders)</span><span class="w-10 h-5 rounded-full p-0.5 ${S.sim.on?'bg-neon':'bg-zinc-700'}"><span class="block w-4 h-4 rounded-full bg-ink transition-transform ${S.sim.on?'translate-x-5':''}"></span></span></button>
    ${S.sim.on?sl('spd','Velocidade',0,60,'km/h')+sl('cad','Cadência',0,130,'rpm')+sl('hr','Freq. cardíaca',50,200,'bpm'):''}</div></section>`}
 function tile(id,l,u,c=''){return `<div class="rounded-2xl bg-panel border border-line p-4"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-5xl font-bold tabular-nums ${c}"><span id="${id}">--</span> <span class="text-base text-zinc-500">${u}</span></div></div>`}
