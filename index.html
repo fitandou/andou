@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Andou! – Ciclismo Indoor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+tailwind.config={theme:{extend:{colors:{neon:'#b6ff3b',ember:'#ff7a1a',ink:'#0a0e0d',panel:'#141a18',line:'#25302c'},fontFamily:{display:['"Barlow Condensed"','Impact','sans-serif'],sans:['Inter','system-ui','sans-serif']}}}}
+</script>
+<style>
+html{-webkit-text-size-adjust:100%;overscroll-behavior-y:none}
+body{background:#0a0e0d;color:#e8eeeb;font-family:Inter,system-ui,sans-serif;overscroll-behavior-y:none;
+  padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);padding-bottom:env(safe-area-inset-bottom)}
+button,select,label{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+/* iOS dá zoom ao focar campos com fonte < 16px */
+@supports(-webkit-touch-callout:none){input:not([type=range]),select,textarea{font-size:16px!important}}
+/* altura dinâmica (barra do Safari/Bluefy); ignorado onde dvh não existe */
+.min-h-screen{min-height:100dvh!important}
+.font-display{letter-spacing:.01em}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #b6ff3b;outline-offset:2px}
+input[type=range]{accent-color:#b6ff3b;width:100%}
+#toast{transition:opacity .25s}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal"></div>
+<div id="toast" class="fixed left-1/2 -translate-x-1/2 z-[60] bg-neon text-ink font-semibold text-sm px-4 py-2 rounded-full opacity-0 pointer-events-none" style="bottom:calc(1.25rem + env(safe-area-inset-bottom))"></div>
+<!-- sem "accept": o seletor de arquivos do iOS deixa .gpx cinza; a validação é feita ao ler o XML -->
+<input type="file" id="gpxFile" class="hidden">
+
+<script>
+/* ---------- Utilidades ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const load=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v??d}catch{return d}};
+const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Não foi possível salvar os dados')}};
+const uid=()=>Math.random().toString(36).slice(2,9);
+const fmt=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;return(h?h+':':'')+String(m).padStart(h?2:1,'0')+':'+String(r).padStart(2,'0')};
+const cssUrl=u=>encodeURI(u).replace(/'/g,'%27').replace(/"/g,'%22');
+const IN='w-full bg-ink border border-line rounded-lg px-3 py-2 text-sm';
+let toastT;
+function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(toastT);toastT=setTimeout(()=>t.style.opacity=0,2600)}
+function hash(s){let h=2166136261;for(const c of String(s)){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
+
+/* ---------- Estado ---------- */
+function simElev(seed,n=60){const h=hash(seed),b=15+h%90,a=15+h%40,f=1+h%3;
+  return Array.from({length:n},(_,i)=>Math.round(b+a*Math.sin(i/n*Math.PI*f)+a*.6*Math.sin(i/n*Math.PI*7+h)+i*.35));}
+const DEMO=[
+ {id:'demo1',name:'Serra do Mar – Subida',desc:'Subida contínua com trechos de até 8% de inclinação. Ideal para treino de força.',dist:18.4,photo:''},
+ {id:'demo2',name:'Orla da Barra',desc:'Percurso plano à beira-mar, ótimo para ritmo constante e recuperação.',dist:24.2,photo:''},
+ {id:'demo3',name:'Circuito do Aterro',desc:'Volta rápida com pequenas ondulações. Boa para tentar recordes.',dist:9.6,photo:''}
+].map(r=>({...r,elev:simElev(r.id),demo:true}));
+const S={
+  profiles:load('cad_profiles',[]),
+  routes:load('cad_routes',null)||DEMO,
+  cur:load('cad_cur',null),
+  tab:'home',
+  sim:{on:!navigator.bluetooth,cad:80,hr:135,spd:28},
+  bt:{hr:null,csc:null},
+  sensor:{spd:0,cad:0,hr:0,ts:0,th:0},
+  wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0},
+  edit:null
+};
+if(!load('cad_routes',null))store('cad_routes',S.routes);
+/* ---------- Intensidade de inclinação ---------- */
+const INT={off:{n:'Off',k:0},suave:{n:'Suave',k:.5},real:{n:'Realista',k:1},duro:{n:'Duro',k:1.6}};
+S.inten=INT[load('cad_inten','real')]?load('cad_inten','real'):'real';
+/* Fator aplicado à velocidade medida: subida reduz (≈0,5 a 8% no Realista), descida ajuda um pouco (máx. 1,5) */
+function factor(g){const k=INT[S.inten].k;return g>=0?Math.max(.2,1-.0625*g*k):Math.min(1.5,1-.03*g*k)}
+function setInten(v){if(!INT[v]||S.wo.dist>0||S.wo.running)return;S.inten=v;store('cad_inten',v);const p=profile();if(p){p.inten=v;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)})}render()}
+function applyInten(){const v=profile()?.inten||load('cad_inten','real');S.inten=INT[v]?v:'real'}
+const profile=()=>S.profiles.find(p=>p.id===S.cur);
+const route=()=>S.routes.find(r=>r.id===S.wo.route)||S.routes[0];
+const saveProfiles=()=>store('cad_profiles',S.profiles);
+const saveRoutes=()=>store('cad_routes',S.routes);
+
+/* ---------- Supabase ----------
+   Preencha com os dados de Project Settings › API. Se ficarem vazios, o app
+   continua funcionando só com localStorage (neste aparelho). */
+const SUPABASE_URL='https://nxerskmlvqxpgckpmvne.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_1bJgblIKv3S288IEM6P8pA_JJ4cJNe6';
+const sb=(SUPABASE_URL&&SUPABASE_ANON_KEY&&window.supabase)?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
+S.sync=sb?'ok':'off';
+const SYNC_UI={ok:['bg-neon','Dados sincronizados com o Supabase'],err:['bg-ember','Sem conexão: alterações ficam pendentes e são enviadas depois'],off:['bg-zinc-600','Supabase não configurado: dados salvos só neste aparelho']};
+const syncDot=()=>`<span id="sync" title="${SYNC_UI[S.sync][1]}" class="inline-block w-2.5 h-2.5 rounded-full shrink-0 ${SYNC_UI[S.sync][0]}"></span>`;
+function setSync(st){S.sync=st;const e=$('#sync');if(e){e.className='inline-block w-2.5 h-2.5 rounded-full shrink-0 '+SYNC_UI[st][0];e.title=SYNC_UI[st][1]}}
+
+/* Conversões objeto do app <-> linha do banco */
+const pRow=p=>({id:p.id,name:p.name,weight:p.weight,height:p.height,photo:p.photo||'',inten:p.inten||S.inten});
+const rRow=r=>({id:r.id,name:r.name,descr:r.desc||'',photo:r.photo||'',dist:r.dist,elev:r.elev,track:r.track||null,demo:!!r.demo,sim_elev:!!r.simElev});
+const wRow=(pid,h)=>({id:h.id,profile_id:pid,route_id:h.routeId,route_name:h.routeName,date:h.date,dist:h.dist,time:h.time,avg_spd:h.avgSpd||0,avg_hr:h.avgHr||0,max_hr:h.maxHr||0,done:!!h.done,inten:h.inten||'off'});
+const fromP=x=>({id:x.id,name:x.name,weight:+x.weight,height:+x.height,photo:x.photo||'',inten:x.inten,history:[]});
+const fromR=x=>({id:x.id,name:x.name,desc:x.descr||'',photo:x.photo||'',dist:+x.dist,elev:x.elev,track:x.track||undefined,demo:x.demo,simElev:x.sim_elev});
+const fromW=x=>({id:x.id,routeId:x.route_id,routeName:x.route_name,date:+x.date,dist:+x.dist,time:+x.time,avgSpd:+x.avg_spd,avgHr:+x.avg_hr,maxHr:+x.max_hr,done:x.done,inten:x.inten});
+
+/* Fila de gravações (outbox): persiste no localStorage e reenvia quando a conexão voltar */
+let outbox=load('cad_outbox',[]),flushing=false;
+const pkOf=o=>o.row?(o.row.id??o.row.profile_id):null;
+function q(op){if(!sb)return;
+  if(op.t==='up')outbox=outbox.filter(x=>!(x.t==='up'&&x.tb===op.tb&&pkOf(x)===pkOf(op)));
+  outbox.push(op);store('cad_outbox',outbox);flush()}
+async function flush(){if(!sb||flushing||!outbox.length)return;flushing=true;
+  try{while(outbox.length){const o=outbox[0];
+      const r=o.t==='up'?await sb.from(o.tb).upsert(o.row):await sb.from(o.tb).delete().eq(o.col,o.val);
+      if(r.error){if(r.error.code){console.error(r.error);toast('O Supabase recusou uma gravação: '+r.error.message);outbox.shift();store('cad_outbox',outbox);continue}throw r.error}
+      outbox.shift();store('cad_outbox',outbox)}
+    setSync('ok')}
+  catch(e){console.error(e);setSync('err')}
+  flushing=false}
+window.addEventListener('online',flush);
+setInterval(flush,30000);
+
+/* Lê todas as linhas de uma tabela (páginas de 1000) */
+async function fetchAll(tb,col,asc=true){let out=[],from=0;
+  for(;;){const r=await sb.from(tb).select('*').order(col,{ascending:asc}).range(from,from+999);
+    if(r.error)throw r.error;out=out.concat(r.data);if(r.data.length<1000)return out;from+=1000}}
+
+/* Baixa tudo do Supabase para o estado local. Se o banco estiver vazio, envia os dados locais (migração). */
+async function pull(){
+  const [P,R,W,A]=await Promise.all([fetchAll('profiles','created_at'),fetchAll('routes','created_at',false),fetchAll('workouts','date',false),fetchAll('active_workouts','profile_id')]);
+  if(!P.length&&!R.length){
+    S.profiles.forEach(p=>{q({t:'up',tb:'profiles',row:pRow(p)});(p.history||[]).forEach(h=>q({t:'up',tb:'workouts',row:wRow(p.id,h)}))});
+    S.routes.forEach(r=>q({t:'up',tb:'routes',row:rRow(r)}));
+    return null}
+  const by={};P.forEach(x=>by[x.id]=fromP(x));
+  W.forEach(x=>{if(by[x.profile_id])by[x.profile_id].history.push(fromW(x))});
+  S.profiles=P.map(x=>by[x.id]);S.routes=R.map(fromR);
+  saveProfiles();saveRoutes();
+  const a=A.find(x=>x.profile_id===S.cur);return a?a.data:null}
+/* Perfis precisam existir no banco antes dos treinos (chave estrangeira): a fila mantém a ordem de inserção. */
+
+/* ---------- Ranking simulado ---------- */
+function userBest(r,p=profile()){const t=(p?.history||[]).filter(h=>h.routeId===r.id&&h.done&&(h.inten||'off')===S.inten).map(h=>h.time);return t.length?Math.min(...t):null}
+function board(r){const rows=[];
+  S.profiles.forEach(p=>{const t=userBest(r,p);if(t)rows.push({name:p.name,time:t,me:p.id===S.cur})});
+  return rows.sort((a,b)=>a.time-b.time).map((x,i)=>({...x,pos:i+1}));}
+const rankHtml=(rows,n)=>!rows.length?'<li class="py-1.5 text-zinc-500 text-sm">Nenhum tempo registrado ainda.</li>':rows.slice(0,n).map(x=>`<li class="flex items-center gap-3 py-1.5 ${x.me?'text-neon font-semibold':''}"><span class="w-6 text-center font-display text-lg ${x.pos<=3?'text-ember':'text-zinc-500'}">${x.pos}</span><span class="flex-1 truncate">${esc(x.name)}${x.me?' (você)':''}</span><span class="tabular-nums">${fmt(x.time)}</span></li>`).join('');
+
+/* ---------- Avatar / capa / altimetria ---------- */
+function avatar(p,size=48){const st=`width:${size}px;height:${size}px;font-size:${size*.45}px`;
+  return p.photo?`<div class="rounded-full bg-cover bg-center border border-line shrink-0" style="${st};background-image:url('${cssUrl(p.photo)}')"></div>`
+  :`<div class="rounded-full bg-neon/15 text-neon grid place-items-center font-display font-bold shrink-0" style="${st}">${esc((p.name||'?')[0].toUpperCase())}</div>`;}
+function cover(r,cls='h-36'){const hue=hash(r.id)%360;
+  const bg=r.photo?`background-image:url('${cssUrl(r.photo)}')`:`background-image:linear-gradient(135deg,hsl(${hue} 55% 22%),hsl(${(hue+50)%360} 60% 12%))`;
+  return `<div class="${cls} bg-cover bg-center w-full relative overflow-hidden" style="${bg}">${r.photo?'':`<div class="absolute inset-0 p-2">${trackSvg(r,null,true)}</div>`}</div>`;}
+function elevStats(e){let g=0;for(let i=1;i<e.length;i++)if(e[i]>e[i-1])g+=e[i]-e[i-1];return{gain:Math.round(g),max:Math.round(Math.max(...e)),min:Math.round(Math.min(...e))}}
+function elevSvg(r,p=null){const e=r.elev,mn=Math.min(...e),mx=Math.max(...e),rg=Math.max(mx-mn,1),W=600,H=110;
+  const pts=e.map((v,i)=>[i/(e.length-1)*W,H-8-(v-mn)/rg*(H-24)]);
+  const line=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
+  let m='';if(p!=null){const x=p*W,i=Math.min(e.length-1,Math.round(p*(e.length-1))),y=pts[i][1];
+    m=`<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#ff7a1a" stroke-width="2" stroke-dasharray="4 3"/><circle cx="${x}" cy="${y}" r="6" fill="#ff7a1a" stroke="#0a0e0d" stroke-width="2"/>`}
+  return `<svg viewBox="0 0 ${W} ${H}" class="w-full h-24" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H}Z" fill="#b6ff3b" fill-opacity=".14"/><path d="${line}" fill="none" stroke="#b6ff3b" stroke-width="2.5" stroke-linejoin="round"/>${m}</svg>`;}
+/* ---------- Traçado do circuito ---------- */
+function normTrack(pts){let x0=1e18,y0=1e18,x1=-1e18,y1=-1e18;
+  pts.forEach(q=>{x0=Math.min(x0,q[0]);x1=Math.max(x1,q[0]);y0=Math.min(y0,q[1]);y1=Math.max(y1,q[1])});
+  const s=1000/Math.max(x1-x0,y1-y0,1e-9);
+  return pts.map(q=>[Math.round((q[0]-x0)*s),Math.round((q[1]-y0)*s)])}
+function genTrack(seed){const h=hash(seed),n=240,k=2+h%2,m=3+(h>>3)%3,a=.18+(h%7)/50,b=.08+((h>>5)%5)/60,ph=(h%360)*Math.PI/180,ps=((h>>7)%360)*Math.PI/180;
+  return normTrack(Array.from({length:n},(_,i)=>{const t=i/(n-1)*2*Math.PI,rr=1+a*Math.sin(k*t+ph)+b*Math.sin(m*t+ps);return[rr*Math.cos(t),rr*Math.sin(t)*.72]}))}
+const trackCache={};
+function getTrack(r){return r.track&&r.track.length>1?r.track:(trackCache[r.id]||(trackCache[r.id]=genTrack(r.id)))}
+function trackPos(T,p){const n=T.length,f=Math.min(1,Math.max(0,p))*(n-1),i=Math.min(n-2,Math.floor(f)),t=f-i,a=T[i],b=T[i+1];
+  return{i,pos:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}}
+function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach(q=>{w=Math.max(w,q[0]);h=Math.max(h,q[1])});
+  const pad=mini?50:75,sw=mini?11:16,d=a=>a.map((q,i)=>(i?'L':'M')+q[0]+' '+q[1]).join(' '),full=d(T);
+  const loop=Math.hypot(T[0][0]-T[T.length-1][0],T[0][1]-T[T.length-1][1])<45;
+  let done='',rider='';
+  if(p!=null){const {i,pos}=trackPos(T,p);
+    if(p>0)done=`<path d="${d([...T.slice(0,i+1),pos])}" fill="none" stroke="#b6ff3b" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    rider=`<circle cx="${pos[0]}" cy="${pos[1]}" r="46" fill="#ff7a1a" fill-opacity=".25"/><circle cx="${pos[0]}" cy="${pos[1]}" r="32" fill="#ff7a1a" stroke="#fff" stroke-width="5"/><text x="${pos[0]}" y="${pos[1]}" dy=".35em" text-anchor="middle" font-size="36">🚴</text>`}
+  const road=mini?`<path d="${full}" fill="none" stroke="#b6ff3b" stroke-opacity=".75" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`
+   :`<path d="${full}" fill="none" stroke="#0a0e0d" stroke-width="${sw+10}" stroke-linecap="round" stroke-linejoin="round"/><path d="${full}" fill="none" stroke="#3a4743" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const s=T[0],e=T[T.length-1],mk=(q,c)=>`<circle cx="${q[0]}" cy="${q[1]}" r="${sw*.95}" fill="${c}" stroke="#0a0e0d" stroke-width="4"/>`;
+  const marks=mini?'':mk(s,'#fff')+(loop?'':mk(e,'#ff7a1a'));
+  return `<svg viewBox="${-pad} ${-pad} ${w+2*pad} ${h+2*pad}" class="w-full h-full" role="img" aria-label="Mapa do circuito">${road}${done}${marks}${rider}</svg>`}
+function grade(r,p){const e=r.elev,n=e.length-1,i=Math.min(n-1,Math.floor(p*n)),seg=r.dist*1000/n,a=Math.max(0,i-1),b=Math.min(n,i+2);
+  return Math.max(-15,Math.min(15,(e[b]-e[a])/(seg*(b-a))*100))}
+
+/* ---------- Modal ---------- */
+function openModal(html,w='max-w-lg'){$('#modal').innerHTML=`<div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeModal()"><div class="bg-panel border border-line rounded-t-2xl sm:rounded-2xl w-full ${w} overflow-y-auto p-5" style="max-height:92vh;max-height:92dvh;padding-bottom:max(1.25rem,env(safe-area-inset-bottom))">${html}</div></div>`;lucide.createIcons()}
+function closeModal(){$('#modal').innerHTML=''}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+/* ---------- Perfis ---------- */
+function home(){
+  const list=S.profiles.map(p=>`<button onclick="selectProfile('${p.id}')" class="w-full flex items-center gap-4 p-4 rounded-xl bg-panel border border-line hover:border-neon text-left">${avatar(p,52)}<div class="flex-1 min-w-0"><div class="font-display text-2xl font-bold truncate">${esc(p.name)}</div><div class="text-sm text-zinc-400">${p.weight} kg · ${p.height} cm</div></div><i data-lucide="chevron-right" class="text-zinc-500"></i></button>`).join('');
+  return `<main class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-md">
+  <div class="flex items-center gap-2 mb-1 text-neon"><i data-lucide="bike" class="w-7 h-7"></i><span class="font-display text-4xl font-extrabold">Andou!</span></div>
+  <p class="text-zinc-400 mb-6">Quem vai pedalar hoje?</p>
+  <div class="space-y-3 mb-4">${list||'<div class="p-6 rounded-xl border border-dashed border-line text-center text-zinc-400">Nenhum perfil ainda. Crie o primeiro para começar a treinar.</div>'}</div>
+  <button onclick="profileModal()" class="w-full py-3 rounded-xl bg-neon text-ink font-semibold flex items-center justify-center gap-2"><i data-lucide="user-plus" class="w-5 h-5"></i>Criar novo perfil</button></div></main>`;}
+function profileModal(){openModal(`<h2 class="font-display text-3xl font-bold mb-4">Novo perfil</h2>
+  <form onsubmit="saveProfile(event)" class="space-y-3">
+  <label class="block text-sm">Nome<input name="pn" required maxlength="30" class="${IN} mt-1"></label>
+  <div class="grid grid-cols-2 gap-3"><label class="block text-sm">Peso (kg)<input name="pw" type="number" min="20" max="250" step="0.1" required class="${IN} mt-1"></label>
+  <label class="block text-sm">Altura (cm)<input name="ph" type="number" min="100" max="250" required class="${IN} mt-1"></label></div>
+  <label class="block text-sm">URL da foto (opcional)<input name="pp" type="url" placeholder="https://..." class="${IN} mt-1"></label>
+  <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">Salvar perfil</button></div></form>`)}
+function saveProfile(e){e.preventDefault();const f=e.target.elements;
+  const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:f.pp.value.trim(),inten:S.inten,history:[]};
+  S.profiles.push(p);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();selectProfile(p.id)}
+function selectProfile(id){S.cur=id;store('cad_cur',id);applyInten();S.tab='home';render()}
+function switchProfile(){if(S.wo.running||S.wo.dist>0){if(!confirm('Há um treino em andamento. Sair e descartá-lo?'))return;resetWo()}S.cur=null;store('cad_cur',null);render()}
+function deleteProfile(){if(!confirm('Excluir este perfil e todo o histórico?'))return;resetWo();q({t:'del',tb:'profiles',col:'id',val:S.cur});S.profiles=S.profiles.filter(p=>p.id!==S.cur);saveProfiles();switchProfile()}
+
+/* ---------- Home ---------- */
+const MOTIV=[
+ 'Cada pedalada de hoje é um passo à frente do você de ontem.',
+ 'Constância vence talento: apareça, pedale, repita.',
+ 'Respire fundo, solte os ombros e encontre o seu ritmo.',
+ 'Subida é só uma descida que ainda não chegou.',
+ 'O treino mais difícil é o que você não começa. Dê o primeiro giro!',
+ 'Pequenos treinos somam grandes resultados.',
+ 'Hidrate-se e mantenha a cadência: o resto vem junto.',
+ 'Hoje não precisa ser perfeito, precisa ser feito.',
+ 'Seu recorde está esperando por você na próxima pista.',
+ 'Pedale pelo prazer de se mover. A performance é consequência.'];
+S.msgI=0;
+const weekKm=p=>p.history.filter(h=>h.date>=Date.now()-6048e5).reduce((a,h)=>a+h.dist,0);
+function motivMsg(p){if(!p.history.length&&!S.msgI)return 'Sua primeira pedalada começa com um clique. Escolha uma pista e vamos nessa!';
+  return MOTIV[(Math.floor(Date.now()/864e5)+hash(p.id)+S.msgI)%MOTIV.length]}
+function nextMsg(){S.msgI++;render()}
+/* Recomenda a pista menos concluída; empate: a que está há mais tempo sem treino; depois a mais curta */
+function recommend(){const p=profile();if(!p||!S.routes.length)return null;
+  const info=S.routes.map(r=>{const hs=p.history.filter(h=>h.routeId===r.id);
+    return{r,dn:hs.filter(h=>h.done).length,last:hs.length?Math.max(...hs.map(h=>h.date)):0}});
+  info.sort((a,b)=>a.dn-b.dn||a.last-b.last||a.r.dist-b.r.dist);
+  const x=info[0];x.why=x.dn===0?(x.last?'Você começou, mas ainda não concluiu':'Pista nova para você'):'É a que está há mais tempo sem pedalar';return x}
+function startNow(id){const w=S.wo;
+  if(w.dist>0||w.running){toast('Já há um treino em andamento');setTab('treino');return}
+  w.route=id;w.running=true;w.last=Date.now();wakeOn();S.tab='treino';render()}
+function homeTab(){
+  const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0),bmi=p.weight/Math.pow(p.height/100,2),
+    nb=S.routes.filter(r=>userBest(r)).length,rec=recommend(),last=h[0];
+  const st=(l,v,u)=>`<div class="rounded-xl bg-panel border border-line px-3 py-2 lg:py-3 min-w-0"><div class="text-[11px] lg:text-xs text-zinc-400 truncate">${l}</div><div class="font-display text-2xl lg:text-4xl font-bold text-neon leading-tight truncate">${v}<span class="text-xs lg:text-sm text-zinc-500 ml-1">${u}</span></div></div>`;
+  const recHtml=rec?`<section class="rounded-2xl bg-panel border border-line p-3 lg:p-4 flex flex-col gap-2 lg:flex-1 lg:min-h-0">
+    <h3 class="font-display text-xl lg:text-2xl font-bold flex items-center gap-2"><i data-lucide="route" class="w-5 h-5 text-neon"></i>Pista recomendada</h3>
+    <div class="relative rounded-xl overflow-hidden h-28 lg:h-auto lg:flex-1 lg:min-h-0 bg-ink"><div class="absolute inset-0">${cover(rec.r,'h-full')}</div></div>
+    <div class="min-w-0"><div class="font-display text-2xl font-bold truncate">${esc(rec.r.name)}</div>
+     <div class="text-xs text-zinc-400 truncate">${rec.r.dist.toFixed(1)} km · +${elevStats(rec.r.elev).gain} m · ${userBest(rec.r)?'Seu recorde '+fmt(userBest(rec.r)):'Sem recorde'}</div>
+     <div class="text-xs text-zinc-500 truncate">${rec.why}</div></div>
+    <button onclick="startNow('${rec.r.id}')" class="w-full py-2.5 rounded-lg bg-ember text-ink font-semibold flex items-center justify-center gap-2"><i data-lucide="play" class="w-4 h-4"></i>Iniciar agora</button></section>`
+   :`<section class="rounded-2xl border border-dashed border-line p-4 text-center text-zinc-400 text-sm lg:flex-1 grid place-items-center">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</section>`;
+  return `<div class="max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-3 lg:h-full">
+   <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-3 lg:min-h-0">
+    <section class="rounded-2xl bg-panel border border-line p-3 lg:p-4 flex items-center gap-3 shrink-0">${avatar(p,56)}
+     <div class="min-w-0 flex-1"><div class="font-display text-3xl font-bold truncate leading-none">Olá, ${esc(p.name)}!</div>
+      <div class="text-xs text-zinc-400 truncate mt-1">${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)} · Inclinação: ${INT[S.inten].n}</div>
+      <div class="text-xs text-zinc-500 truncate">${last?'Último treino: '+new Date(last.date).toLocaleDateString('pt-BR')+' · '+esc(last.routeName)+' · '+last.dist.toFixed(1)+' km':'Nenhum treino registrado ainda'}</div></div></section>
+    <div class="grid grid-cols-4 gap-2 lg:gap-3 shrink-0">${st('Semana',weekKm(p).toFixed(1),'km')}${st('Total',km.toFixed(1),'km')}${st('Treinos',h.length,'')}${st('Recordes',nb,'')}</div>
+    <section class="rounded-2xl bg-gradient-to-br from-neon/15 to-panel border border-neon/30 p-3 lg:p-5 flex flex-col justify-center gap-2 lg:flex-1 lg:min-h-0">
+     <div class="flex items-center justify-between text-neon text-xs font-semibold"><span class="flex items-center gap-1.5"><i data-lucide="sparkles" class="w-4 h-4"></i>Mensagem do dia</span><button onclick="nextMsg()" class="flex items-center gap-1 text-zinc-400 hover:text-neon"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Outra</button></div>
+     <p class="font-display text-xl lg:text-4xl font-bold leading-tight">${motivMsg(p)}</p></section>
+    <button onclick="setTab('rotas')" class="w-full py-3 lg:py-5 rounded-2xl bg-neon text-ink font-display text-3xl lg:text-4xl font-extrabold flex items-center justify-center gap-3 shrink-0 shadow-[0_0_30px_rgba(182,255,59,.25)]"><i data-lucide="bike" class="w-8 h-8"></i>TREINAR<i data-lucide="arrow-right" class="w-7 h-7"></i></button>
+   </div>
+   <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-2 lg:min-h-0">${recHtml}
+    <div class="lg:shrink-0 lg:max-h-[48%] lg:overflow-y-auto rounded-2xl">${btPanel()}</div></div>
+  </div></div>`}
+
+/* ---------- Estrutura principal ---------- */
+function shell(){const p=profile();
+  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-neon text-neon':'border-transparent text-zinc-400 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4"></i>${l}${id==='treino'&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}</button>`;
+  return `<header class="border-b border-line bg-panel/60 sticky top-0 z-30 backdrop-blur"><div class="max-w-6xl mx-auto px-4 flex items-center gap-4 flex-wrap">
+   <div class="flex items-center gap-2 text-neon py-3"><i data-lucide="bike" class="w-6 h-6"></i><span class="font-display text-3xl font-extrabold">Andou!</span></div>
+   <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('rotas','map','Rotas')}${tab('treino','gauge','Treino')}${tab('perfil','user','Perfil & Histórico')}</nav>
+   <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-zinc-500"></i></button></div></header>
+  ${S.tab==='home'||S.tab==='treino'?`<main class="p-3" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${S.tab==='home'?homeTab():treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${S.tab==='perfil'?perfil():rotas()}</main>`}`}
+function setTab(t){S.tab=t;render()}
+function setHH(){const e=document.querySelector('header');if(e)document.documentElement.style.setProperty('--hh',e.offsetHeight+'px')}
+window.addEventListener('resize',setHH);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(setHH);
+function render(){$('#app').innerHTML=S.cur&&profile()?shell():home();setHH();lucide.createIcons();if(S.cur&&S.tab==='treino')updLive()}
+
+/* ---------- Sensores ---------- */
+function live(){if(S.sim.on)return{spd:S.sim.spd,cad:S.sim.cad,hr:S.sim.hr};
+  const s=S.sensor,now=Date.now(),okC=now-s.ts<4000,okH=now-s.th<5000;return{spd:okC?s.spd:0,cad:okC?s.cad:0,hr:okH?s.hr:0}}
+function parseHR(v){const f=v.getUint8(0);S.sensor.hr=f&1?v.getUint16(1,true):v.getUint8(1);S.sensor.th=Date.now()}
+let prevCsc=null;
+function parseCSC(v){const f=v.getUint8(0);let o=1,cur={};
+  if(f&1){cur.wr=v.getUint32(o,true);cur.wt=v.getUint16(o+4,true);o+=6}
+  if(f&2){cur.cr=v.getUint16(o,true);cur.ct=v.getUint16(o+2,true)}
+  if(prevCsc){
+    if(cur.wr!=null&&prevCsc.wr!=null){const dr=cur.wr-prevCsc.wr,dt=((cur.wt-prevCsc.wt+65536)%65536)/1024;
+      if(dt>0)S.sensor.spd=dr*2.096/dt*3.6;else if(Date.now()-S.sensor.ts>2000)S.sensor.spd=0}
+    if(cur.cr!=null&&prevCsc.cr!=null){const dr=(cur.cr-prevCsc.cr+65536)%65536,dt=((cur.ct-prevCsc.ct+65536)%65536)/1024;
+      if(dt>0)S.sensor.cad=dr/dt*60}}
+  prevCsc=cur;S.sensor.ts=Date.now()}
+const IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const BT_MSG=IOS?'No iPhone/iPad, Safari e Chrome não têm Bluetooth: abra este endereço no navegador Bluefy.':'Web Bluetooth não está disponível neste navegador (use Chrome/Edge em HTTPS ou localhost).';
+const devs={},rec={},BT_CFG={hr:['heart_rate','heart_rate_measurement'],csc:['cycling_speed_and_cadence','csc_measurement']};
+const BT_H={hr:e=>parseHR(e.target.value),csc:e=>parseCSC(e.target.value)}; /* referência fixa: evita ouvintes duplicados ao reconectar */
+async function attach(kind,dev){const [svc,ch]=BT_CFG[kind];
+  const srv=await dev.gatt.connect(),sv=await srv.getPrimaryService(svc),c=await sv.getCharacteristic(ch);
+  c.addEventListener('characteristicvaluechanged',BT_H[kind]);await c.startNotifications();
+  if(kind==='csc')prevCsc=null;S.bt[kind]=dev.name||'Sensor'}
+async function reconnect(kind,n=0){const dev=devs[kind];
+  if(!dev||S.bt[kind]){rec[kind]=false;return}
+  if(n===0&&rec[kind])return;rec[kind]=true;
+  try{await attach(kind,dev);rec[kind]=false;render();toast('Sensor reconectado: '+S.bt[kind])}
+  catch(e){if(n>=7){rec[kind]=false;return}setTimeout(()=>reconnect(kind,n+1),Math.min(2000*(n+1),8000))}}
+/* Tela ligada durante o treino (Wake Lock; no iOS exige 16.4+) */
+let wake=null;
+async function wakeOn(){try{if('wakeLock' in navigator&&!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>{wake=null})}}catch(e){}}
+function wakeOff(){try{wake&&wake.release()}catch(e){}wake=null}
+document.addEventListener('visibilitychange',()=>{S.wo.last=Date.now();
+  if(document.visibilityState==='visible'){if(S.wo.running)wakeOn();['hr','csc'].forEach(k=>{if(devs[k]&&!S.bt[k])reconnect(k)})}});
+async function pair(kind){
+  if(!navigator.bluetooth){toast(BT_MSG);return}
+  const svc=kind==='hr'?'heart_rate':'cycling_speed_and_cadence',ch=kind==='hr'?'heart_rate_measurement':'csc_measurement';
+  try{const dev=await navigator.bluetooth.requestDevice({filters:[{services:[svc]}]});
+    const old=devs[kind];devs[kind]=dev;if(old&&old!==dev){try{old.gatt.disconnect()}catch(_){}}
+    dev.addEventListener('gattserverdisconnected',()=>{if(devs[kind]!==dev)return;S.bt[kind]=null;if(kind==='csc')prevCsc=null;render();setTimeout(()=>reconnect(kind),1500)});
+    await attach(kind,dev);
+    S.sim.on=false;render();toast('Sensor conectado: '+S.bt[kind])}
+  catch(e){if(e.name!=='NotFoundError')toast('Falha ao conectar: '+(e.message||e.name))}}
+function toggleSim(){S.sim.on=!S.sim.on;render()}
+function setSim(k,v){S.sim[k]=+v;const el=$('#sv-'+k);if(el)el.textContent=v;updLive()}
+
+/* ---------- Treino ---------- */
+function btPanel(){
+  const dot=(on)=>`<span class="inline-block w-2.5 h-2.5 rounded-full ${on?'bg-neon shadow-[0_0_8px_#b6ff3b]':'bg-zinc-600'}"></span>`;
+  const row=(k,ic,l)=>`<div class="flex items-center gap-3 py-2"><i data-lucide="${ic}" class="w-5 h-5 text-zinc-400"></i><div class="flex-1 min-w-0"><div class="text-sm">${l}</div><div class="text-xs text-zinc-500 truncate">${S.bt[k]?esc(S.bt[k]):'Desconectado'}</div></div>${dot(!!S.bt[k])}<button onclick="pair('${k}')" class="text-xs px-3 py-1.5 rounded-lg border border-line hover:border-neon">${S.bt[k]?'Trocar':'Parear'}</button></div>`;
+  const sl=(k,l,min,max,u)=>`<label class="block text-sm mt-3"><span class="flex justify-between"><span>${l}</span><span><b id="sv-${k}" class="text-neon">${S.sim[k]}</b> ${u}</span></span><input type="range" min="${min}" max="${max}" value="${S.sim[k]}" oninput="setSim('${k}',this.value)"></label>`;
+  return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold flex items-center gap-2 mb-1"><i data-lucide="bluetooth" class="w-5 h-5 text-neon"></i>Sensores</h3>
+   ${navigator.bluetooth?'':`<p class="text-xs text-ember mb-2">${BT_MSG} Modo simulado ativado.</p>`}${IOS&&!('wakeLock' in navigator)?'<p class="text-xs text-zinc-400 mb-2">Para a tela não apagar durante o treino: Ajustes › Tela e Brilho › Bloqueio Automático › Nunca.</p>':''}
+   ${row('hr','heart-pulse','Frequência cardíaca')}${row('csc','activity','Velocidade e cadência')}
+   <div class="border-t border-line mt-2 pt-3"><button onclick="toggleSim()" class="w-full flex items-center justify-between text-sm"><span>Modo simulado (sliders)</span><span class="w-10 h-5 rounded-full p-0.5 ${S.sim.on?'bg-neon':'bg-zinc-700'}"><span class="block w-4 h-4 rounded-full bg-ink transition-transform ${S.sim.on?'translate-x-5':''}"></span></span></button>
+   ${S.sim.on?sl('spd','Velocidade',0,60,'km/h')+sl('cad','Cadência',0,130,'rpm')+sl('hr','Freq. cardíaca',50,200,'bpm'):''}</div></section>`}
+function tile(id,l,u,c=''){return `<div class="rounded-2xl bg-panel border border-line p-4"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-5xl font-bold tabular-nums ${c}"><span id="${id}">--</span> <span class="text-base text-zinc-500">${u}</span></div></div>`}
+function simPanel(){if(!S.sim.on)return '';
+  const sl=(k,l,min,max,u)=>`<label class="block text-xs mt-2"><span class="flex justify-between"><span>${l}</span><span><b id="sv-${k}" class="text-neon">${S.sim[k]}</b> ${u}</span></span><input type="range" min="${min}" max="${max}" value="${S.sim[k]}" oninput="setSim('${k}',this.value)"></label>`;
+  return `<section class="rounded-xl bg-panel border border-line p-3 shrink-0"><h3 class="font-display text-lg font-bold leading-none">Simulação</h3>${sl('spd','Velocidade',0,60,'km/h')}${sl('cad','Cadência',0,130,'rpm')}${sl('hr','Freq. cardíaca',50,200,'bpm')}</section>`}
+/* Status dos sensores (aba Treino): verde = recebendo dados, laranja = conectado sem sinal, cinza = desconectado */
+function sensorState(k){const now=Date.now();if(S.sim.on)return['Simulado','bg-neon'];
+  if(!S.bt[k])return['Desconectado','bg-zinc-600'];
+  const ok=k==='hr'?now-S.sensor.th<5000:now-S.sensor.ts<4000;
+  return ok?['Recebendo dados','bg-neon']:['Conectado · sem sinal','bg-ember']}
+const sensorTxt=k=>sensorState(k)[0]+(S.bt[k]&&!S.sim.on?' · '+S.bt[k]:'');
+function sensorBox(){
+  const row=(k,l,ic)=>`<div class="flex items-center gap-2 py-1 min-w-0"><i data-lucide="${ic}" class="w-4 h-4 text-zinc-400 shrink-0"></i><div class="flex-1 min-w-0"><div class="text-xs leading-tight truncate">${l}</div><div id="ss-t-${k}" class="text-[11px] text-zinc-500 truncate">${esc(sensorTxt(k))}</div></div><span id="ss-d-${k}" class="inline-block w-2.5 h-2.5 rounded-full shrink-0 ${sensorState(k)[1]}"></span></div>`;
+  return `<section class="rounded-xl bg-panel border border-line px-3 py-2 shrink-0"><div class="flex items-center justify-between"><h3 class="font-display text-lg font-bold leading-none">Sensores</h3><button onclick="setTab('home')" class="text-[11px] px-2 py-1 rounded-md border border-line hover:border-neon">Gerenciar</button></div>
+   <div class="grid grid-cols-2 lg:grid-cols-1 gap-x-3">${row('hr','Freq. cardíaca','heart-pulse')}${row('csc','Velocidade e cadência','activity')}</div></section>`}
+function treino(){
+  const r=route(),w=S.wo;
+  if(!r)return `<div class="p-10 text-center text-zinc-400 border border-dashed border-line rounded-2xl">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</div>`;
+  w.route=r.id;const started=w.dist>0||w.running;
+  const mt=(id,l,u,c='')=>`<div class="rounded-xl bg-panel border border-line px-3 py-1.5 lg:py-2 min-w-0"><div class="text-[11px] text-zinc-400 truncate">${l}</div><div class="font-display text-2xl lg:text-4xl font-bold leading-tight tabular-nums truncate ${c}"><span id="${id}">--</span> <span class="text-xs lg:text-sm text-zinc-500">${u}</span></div></div>`;
+  return `<div class="max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:gap-3 h-full">
+   <section class="rounded-2xl bg-panel border border-line p-2 lg:p-3 flex flex-wrap items-center gap-2 shrink-0">
+    <div class="flex-1 min-w-[150px]"><div class="text-[11px] text-zinc-400">Rota atual · ${r.dist.toFixed(1)} km${userBest(r)?' · Recorde '+fmt(userBest(r)):''}</div><div class="font-display text-xl lg:text-2xl font-bold truncate leading-tight">${esc(r.name)}</div></div>
+    ${started?'':`<button onclick="setTab('rotas')" class="px-3 py-2 rounded-lg border border-line text-sm hover:border-neon flex items-center gap-2"><i data-lucide="map" class="w-4 h-4"></i>Trocar rota</button>`}
+    <select onchange="setInten(this.value)" ${started?'disabled':''} aria-label="Intensidade da inclinação" title="Quanto a inclinação da rota reduz (subida) ou ajuda (descida) o seu avanço" class="${IN} w-auto disabled:opacity-50">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${S.inten===k?'selected':''}>Inclinação: ${v.n}</option>`).join('')}</select>
+    ${S.sim.on?`<select onchange="S.wo.mult=+this.value" class="${IN} w-auto" title="Acelera o tempo da simulação">${[1,10,30,60].map(m=>`<option value="${m}" ${w.mult===m?'selected':''}>${m}x</option>`).join('')}</select>`:''}
+    <button onclick="toggleWo()" class="px-5 py-2 rounded-lg bg-neon text-ink font-semibold flex items-center gap-2"><i data-lucide="${w.running?'pause':'play'}" class="w-4 h-4"></i>${w.running?'Pausar':started?'Retomar':'Iniciar'}</button>
+    ${started?`<button onclick="finish(false)" class="px-4 py-2 rounded-lg border border-ember text-ember font-semibold flex items-center gap-2"><i data-lucide="flag" class="w-4 h-4"></i>Finalizar</button>`:''}</section>
+   <div class="flex-1 min-h-0 flex flex-col gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
+    <div class="flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 lg:col-span-3">
+     <section class="rounded-2xl bg-panel border border-neon/30 p-3 lg:p-4 flex flex-col flex-1 min-h-[180px] lg:min-h-0">
+      <div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-2 shrink-0"><span class="font-display text-xl lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span id="m-prog" class="text-right"></span></div>
+      <div id="m-map" class="flex-1 min-h-0"></div></section>
+     <section class="rounded-2xl bg-panel border border-line px-3 py-2 shrink-0"><div class="text-[11px] text-zinc-400">Altimetria</div><div id="m-elev" class="h-14 lg:h-20 [&>svg]:h-full"></div></section>
+    </div>
+    <div class="flex flex-col gap-2 shrink-0 lg:shrink lg:min-h-0 lg:overflow-y-auto">
+     <section class="rounded-xl bg-gradient-to-br from-panel to-ink border border-line px-3 py-2 lg:py-3 shrink-0"><div class="text-[11px] text-zinc-400">Velocidade</div>
+      <div class="font-display font-extrabold text-neon leading-none tabular-nums text-5xl lg:text-7xl"><span id="m-spd">0.0</span><span class="text-base lg:text-xl text-zinc-500 ml-1">km/h</span></div>
+      <div class="text-xs text-zinc-400 mt-1">Virtual <b id="m-vspd" class="text-ember tabular-nums">0.0</b> km/h · <span id="m-fac" class="tabular-nums">×1.00</span></div>
+      <div class="h-1.5 rounded-full bg-line mt-2 overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div></section>
+     <div class="grid grid-cols-3 lg:grid-cols-2 gap-2 shrink-0">${mt('m-cad','Cadência','rpm')}${mt('m-hr','Freq. cardíaca','bpm','text-ember')}${mt('m-grade','Inclinação','')}${mt('m-dist','Distância','km')}${mt('m-time','Tempo','')}</div>
+     ${sensorBox()}
+     ${simPanel()}
+    </div>
+   </div></div></div>`}
+function toggleWo(){const w=S.wo;w.running=!w.running;w.last=Date.now();w.running?wakeOn():wakeOff();render()}
+function resetWo(){const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0});wakeOff();store('cad_wo',null);
+  if(had&&S.cur)q({t:'del',tb:'active_workouts',col:'profile_id',val:S.cur})}
+function finish(auto){const w=S.wo,r=route(),p=profile();w.running=false;
+  if(w.dist<0.05){toast('Treino muito curto para ser salvo');resetWo();render();return}
+  const done=auto||w.dist>=r.dist*.99,prevBest=userBest(r);
+  p.history.unshift({id:uid(),routeId:r.id,routeName:r.name,date:Date.now(),dist:+w.dist.toFixed(3),time:w.secs,avgSpd:w.dist/(w.secs/3600),avgHr:w.hrN?Math.round(w.hrSum/w.hrN):0,maxHr:Math.round(w.hrMax),done,inten:S.inten});
+  saveProfiles();q({t:'up',tb:'workouts',row:wRow(p.id,p.history[0])});resetWo();
+  toast(done?(!prevBest||p.history[0].time<prevBest?'Rota concluída: novo recorde!':'Rota concluída!'):'Treino salvo no histórico');render()}
+function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v}
+function updLive(){const L=live(),w=S.wo,r=route();if(!r)return;
+  set('m-spd',L.spd.toFixed(1));set('m-cad',Math.round(L.cad));set('m-hr',L.hr?Math.round(L.hr):'--');
+  set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));const p=Math.min(1,w.dist/r.dist);
+  const gr=grade(r,p),fc=factor(gr);set('m-grade',gr.toFixed(1)+'%');set('m-fac','×'+fc.toFixed(2));set('m-vspd',(L.spd*fc).toFixed(1));const b=$('#m-bar');if(b)b.style.width=p*100+'%';const e=$('#m-elev');if(e)e.innerHTML=elevSvg(r,p);
+  const mp=$('#m-map');if(mp)mp.innerHTML=trackSvg(r,p);
+  ['hr','csc'].forEach(k=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensorTxt(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='inline-block w-2.5 h-2.5 rounded-full shrink-0 '+sensorState(k)[1]});
+  set('m-prog',Math.round(p*100)+'% · faltam '+Math.max(0,r.dist-w.dist).toFixed(2)+' km')}
+let tickN=0;
+/* tempo e distância usam o relógio real (Date.now), não a contagem de ticks: o iOS atrasa timers.
+   Lacunas > 3 s (app em segundo plano) não são contadas. */
+setInterval(()=>{const w=S.wo,now=Date.now(),dtRaw=Math.min(Math.max((now-(w.last||now))/1000,0),3);w.last=now;
+  if(w.running&&route()){const L=live(),m=(S.sim.on?w.mult:1)*dtRaw,r=route();const f=factor(grade(r,Math.min(1,w.dist/r.dist)));w.secs+=m;w.dist+=L.spd/3600*m*f;
+    if(L.hr>0){w.hrSum+=L.hr;w.hrN++;w.hrMax=Math.max(w.hrMax,L.hr)}
+    if(w.dist>=r.dist){w.dist=r.dist;finish(true);return}}
+  if((w.running||w.dist>0)&&++tickN%3===0){const sv={...w,running:false,profile:S.cur,saved:now};store('cad_wo',sv); /* sobrevive se o iOS recarregar a página */
+    if(tickN%15===0&&S.cur)q({t:'up',tb:'active_workouts',row:{profile_id:S.cur,data:sv,saved:now}})} /* e, a cada ~15 s, vai para o Supabase */
+  if(S.cur&&S.tab==='treino')updLive()},1000);
+
+/* ---------- Perfil & Histórico ---------- */
+function perfil(){const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0),t=h.reduce((a,x)=>a+x.time,0),bmi=p.weight/Math.pow(p.height/100,2);
+  const bests=S.routes.map(r=>({r,t:userBest(r)})).filter(x=>x.t);
+  const stat=(l,v)=>`<div class="rounded-xl bg-ink border border-line p-3"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-3xl font-bold text-neon">${v}</div></div>`;
+  return `<div class="space-y-4"><section class="rounded-2xl bg-panel border border-line p-5"><div class="flex items-center gap-4 flex-wrap">${avatar(p,72)}
+   <div class="flex-1 min-w-[160px]"><div class="font-display text-4xl font-bold">${esc(p.name)}</div><div class="text-sm text-zinc-400">${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)}</div></div>
+   <button onclick="deleteProfile()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember flex items-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i>Excluir perfil</button></div>
+   <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length)}${stat('Rotas com recorde',bests.length)}</div></section>
+  <div class="grid md:grid-cols-2 gap-4"><section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-0.5">Melhores tempos</h3><p class="text-xs text-zinc-500 mb-2">Modo de inclinação: ${INT[S.inten].n} (recordes são separados por modo)</p>
+   ${bests.length?bests.map(x=>`<button onclick="routeDetail('${x.r.id}')" class="w-full flex justify-between py-2 border-b border-line last:border-0 text-left hover:text-neon"><span class="truncate">${esc(x.r.name)}</span><span class="tabular-nums text-neon">${fmt(x.t)}</span></button>`).join(''):'<p class="text-sm text-zinc-400">Conclua uma rota inteira para registrar seu primeiro recorde.</p>'}</section>
+  <section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2">Histórico de treinos</h3>
+   ${h.length?`<ul class="max-h-[420px] overflow-y-auto">${h.map(x=>`<li class="py-2 border-b border-line last:border-0"><div class="flex justify-between gap-2"><span class="truncate font-medium">${esc(x.routeName)}</span><span class="text-xs ${x.done?'text-neon':'text-zinc-500'}">${x.done?'Concluída':'Parcial'}</span></div><div class="text-xs text-zinc-400">${new Date(x.date).toLocaleDateString('pt-BR')} · ${x.dist.toFixed(2)} km · ${fmt(x.time)} · ${x.avgSpd.toFixed(1)} km/h${x.avgHr?' · '+x.avgHr+' bpm':''} · Inclinação ${INT[x.inten||'off'].n}</div></li>`).join('')}</ul>`:'<p class="text-sm text-zinc-400">Seus treinos aparecerão aqui depois da primeira pedalada.</p>'}</section></div></div>`}
+
+/* ---------- Biblioteca de Rotas ---------- */
+function rotas(){
+  return `<div class="flex items-center justify-between mb-4 gap-3 flex-wrap"><h2 class="font-display text-4xl font-bold">Biblioteca de rotas</h2>
+   <button onclick="$('#gpxFile').click()" class="px-4 py-2.5 rounded-lg bg-neon text-ink font-semibold flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i>Importar .GPX</button></div>
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">${S.routes.map(r=>{const b=userBest(r),es=elevStats(r.elev);
+   return `<article class="rounded-2xl bg-panel border border-line overflow-hidden flex flex-col"><button onclick="routeDetail('${r.id}')" class="text-left">${cover(r)}</button>
+    <div class="p-4 flex-1 flex flex-col gap-2"><h3 class="font-display text-2xl font-bold leading-tight">${esc(r.name)}</h3>
+    <div class="text-xs text-zinc-400">${r.dist.toFixed(1)} km · +${es.gain} m · ${b?'Seu recorde '+fmt(b):'Sem recorde'}</div>
+    <p class="text-sm text-zinc-300 line-clamp-2">${esc(r.desc)||'Sem descrição.'}</p>
+    <ol class="text-xs">${rankHtml(board(r),3)}</ol>
+    <div class="flex gap-2 mt-auto pt-2"><button onclick="routeDetail('${r.id}')" class="flex-1 py-2 rounded-lg border border-line text-sm hover:border-neon">Detalhes</button><button onclick="trainOn('${r.id}')" class="flex-1 py-2 rounded-lg bg-neon text-ink text-sm font-semibold">Treinar</button></div></div></article>`}).join('')}</div>`}
+function trainOn(id){if(S.wo.dist>0||S.wo.running){toast('Finalize o treino atual antes de trocar de rota');S.tab='treino';render();return}S.wo.route=id;closeModal();setTab('treino')}
+function routeDetail(id){const r=S.routes.find(x=>x.id===id);if(!r)return;const es=elevStats(r.elev),b=userBest(r);
+  openModal(`<div class="-m-5 mb-4">${cover(r,'h-48')}</div><div class="flex justify-between items-start gap-3"><h2 class="font-display text-4xl font-bold leading-tight">${esc(r.name)}</h2><button onclick="closeModal()" class="text-zinc-400 hover:text-white"><i data-lucide="x"></i></button></div>
+   <p class="text-sm text-zinc-300 my-2">${esc(r.desc)||'Sem descrição.'}</p>
+   <div class="grid grid-cols-4 gap-2 text-center my-3">${[['Distância',r.dist.toFixed(1)+' km'],['Ganho','+'+es.gain+' m'],['Altitude máx.',es.max+' m'],['Seu recorde',b?fmt(b):'--']].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
+   <div class="text-xs text-zinc-400 mb-1">Circuito${r.track?'':' (traçado simulado)'}</div><div class="h-64 rounded-xl bg-ink border border-line p-2 mb-3">${trackSvg(r,0)}</div>
+   <div class="text-xs text-zinc-400">Altimetria${r.demo||r.simElev?' (simulada)':''}</div>${elevSvg(r)}
+   <h3 class="font-display text-2xl font-bold mt-3">Ranking completo</h3><ol class="text-sm divide-y divide-line">${rankHtml(board(r),20)}</ol>
+   <div class="flex gap-2 mt-4"><button onclick="editRoute('${r.id}')" class="flex-1 py-2.5 rounded-lg border border-line flex items-center justify-center gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>Editar</button><button onclick="delRoute('${r.id}')" class="py-2.5 px-4 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember"><i data-lucide="trash-2" class="w-4 h-4"></i></button><button onclick="trainOn('${r.id}')" class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">Treinar</button></div>`,'max-w-2xl')}
+function delRoute(id){if(!confirm('Excluir esta rota da biblioteca?'))return;S.routes=S.routes.filter(r=>r.id!==id);if(S.wo.route===id)S.wo.route=null;saveRoutes();q({t:'del',tb:'routes',col:'id',val:id});closeModal();render()}
+function editRoute(id,isNew=false){const r=isNew?S.edit:S.routes.find(x=>x.id===id);S.edit={...r,isNew};
+  openModal(`<h2 class="font-display text-3xl font-bold mb-4">${isNew?'Salvar rota importada':'Editar rota'}</h2><form onsubmit="saveRoute(event)" class="space-y-3">
+   <label class="block text-sm">Nome da rota<input name="rn" required maxlength="60" value="${esc(r.name)}" class="${IN} mt-1"></label>
+   <label class="block text-sm">Descrição<textarea name="rd" rows="3" maxlength="300" class="${IN} mt-1">${esc(r.desc)}</textarea></label>
+   <label class="block text-sm">URL da foto de capa<input name="rp" type="url" value="${esc(r.photo)}" placeholder="https://..." class="${IN} mt-1"></label>
+   <label class="block text-sm">Distância total (km)<input name="rk" type="number" step="0.01" min="0.1" required value="${(+r.dist).toFixed(2)}" class="${IN} mt-1"></label>
+   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-neon text-ink font-semibold">${isNew?'Adicionar à biblioteca':'Salvar alterações'}</button></div></form>`)}
+function saveRoute(e){e.preventDefault();const f=e.target.elements,r={...S.edit};
+  r.name=f.rn.value.trim();r.desc=f.rd.value.trim();r.photo=f.rp.value.trim();r.dist=+f.rk.value;
+  const isNew=r.isNew;delete r.isNew;
+  if(isNew)S.routes.unshift(r);else S.routes=S.routes.map(x=>x.id===r.id?r:x);
+  S.edit=null;saveRoutes();q({t:'up',tb:'routes',row:rRow(r)});closeModal();toast(isNew?'Rota adicionada':'Rota atualizada');render()}
+
+/* ---------- Importação GPX ---------- */
+function hav(a,b){const R=6371,t=x=>x*Math.PI/180,dLa=t(b[0]-a[0]),dLo=t(b[1]-a[1]);
+  const q=Math.sin(dLa/2)**2+Math.cos(t(a[0]))*Math.cos(t(b[0]))*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(q))}
+function parseGPX(txt,fallbackName){
+  const d=new DOMParser().parseFromString(txt,'application/xml');
+  if(d.querySelector('parsererror'))throw new Error('O arquivo não é um XML válido.');
+  let pts=[...d.getElementsByTagName('trkpt')];if(pts.length<2)pts=[...d.getElementsByTagName('rtept')];
+  if(pts.length<2)throw new Error('Nenhum ponto de trilha (trkpt) encontrado no arquivo.');
+  let dist=0,prev=null;const cum=[],ele=[],xy=[];
+  const lat0=+pts[0].getAttribute('lat'),lon0=+pts[0].getAttribute('lon'),kx=Math.cos(lat0*Math.PI/180)*111.32;
+  pts.forEach(p=>{const c=[+p.getAttribute('lat'),+p.getAttribute('lon')];if(prev)dist+=hav(prev,c);prev=c;cum.push(dist);
+    xy.push([(c[1]-lon0)*kx,-(c[0]-lat0)*110.57]);
+    const e=p.getElementsByTagName('ele')[0];ele.push(e?parseFloat(e.textContent):NaN)});
+  const rs=[];{let j=0;for(let i=0;i<240;i++){const tg=dist*i/239;while(j<cum.length-1&&cum[j]<tg)j++;
+    const a=Math.max(j-1,0),sp=cum[j]-cum[a],t=sp>0?Math.min(1,Math.max(0,(tg-cum[a])/sp)):0;
+    rs.push([xy[a][0]+(xy[j][0]-xy[a][0])*t,xy[a][1]+(xy[j][1]-xy[a][1])*t])}}
+  const track=normTrack(rs);
+  const valid=ele.filter(v=>!isNaN(v)).length;let elev,simElevated=false;
+  if(valid>=pts.length*.5&&dist>0){elev=[];let j=0,last=ele.find(v=>!isNaN(v));
+    for(let i=0;i<60;i++){const tg=dist*i/59;while(j<cum.length-1&&cum[j]<tg)j++;if(!isNaN(ele[j]))last=ele[j];elev.push(Math.round(last))}
+    elev=elev.map((v,i,a)=>{const s=a.slice(Math.max(0,i-2),i+3);return Math.round(s.reduce((x,y)=>x+y,0)/s.length)})}
+  else{elev=simElev(fallbackName+dist);simElevated=true}
+  const nm=(d.querySelector('trk > name')||d.querySelector('metadata > name')||d.querySelector('name'));
+  const ds=d.querySelector('trk > desc')||d.querySelector('metadata > desc');
+  return{id:uid(),name:(nm?.textContent||fallbackName).trim(),desc:(ds?.textContent||'').trim(),photo:'',dist:+dist.toFixed(2),elev,track,simElev:simElevated,points:pts.length}}
+$('#gpxFile').addEventListener('change',async ev=>{const f=ev.target.files[0];ev.target.value='';if(!f)return;
+  try{const r=parseGPX(await f.text(),f.name.replace(/\.gpx$/i,''));S.edit=r;editRoute(r.id,true);toast(r.points+' pontos lidos · '+r.dist+' km')}
+  catch(e){toast('Erro ao importar: '+e.message)}});
+
+function restoreWo(remote){let sv=load('cad_wo',null);
+  if(remote&&(!sv||(remote.saved||0)>(sv.saved||0)))sv=remote; /* usa o mais recente entre este aparelho e o Supabase */
+  if(sv&&sv.profile===S.cur&&profile()&&sv.dist>0&&S.routes.some(r=>r.id===sv.route)&&Date.now()-sv.saved<43200000){
+    sv={...sv};delete sv.profile;delete sv.saved;Object.assign(S.wo,sv,{running:false,last:Date.now()});S.tab='treino';
+    setTimeout(()=>toast('Treino anterior restaurado. Reconecte os sensores e toque em Retomar'),400)}}
+async function boot(){
+  if(!sb){applyInten();restoreWo();render();return}
+  if(S.cur&&profile())render();else $('#app').innerHTML='<main class="min-h-screen grid place-items-center text-zinc-400">Carregando dados…</main>';
+  let remote=null;
+  try{await flush();if(outbox.length)throw new Error('pendente');remote=await pull();setSync('ok')}
+  catch(e){console.error(e);setSync('err');toast('Sem conexão com o Supabase: usando os dados salvos neste aparelho')}
+  applyInten();restoreWo(remote);render()}
+boot();
+</script>
+</body>
+</html>
