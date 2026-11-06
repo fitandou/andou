@@ -195,7 +195,28 @@ function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach
    :`<path d="${full}" fill="none" stroke="#000000" stroke-width="${sw+10}" stroke-linecap="round" stroke-linejoin="round"/><path d="${full}" fill="none" stroke="#2f6396" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
   const s=T[0],e=T[T.length-1],mk=(q,c)=>`<circle cx="${q[0]}" cy="${q[1]}" r="${sw*.95}" fill="${c}" stroke="#000000" stroke-width="4"/>`;
   const marks=mini?'':mk(s,'#fff')+(loop?'':mk(e,'#ffa13d'));
-  return `<svg viewBox="${-pad} ${-pad} ${w+2*pad} ${h+2*pad}" class="w-full h-full" role="img" aria-label="Mapa do circuito">${road}${done}${marks}${rider}</svg>`}
+  /* onda de energia: segue o sentido do percurso (ordem dos pontos). O SVG é redesenhado a cada tick,
+     então a fase da animação vem do relógio (delay negativo) para a onda não reiniciar a cada redesenho. */
+  /* só o trecho À FRENTE do ciclista (da posição atual até a chegada); a fase vem de um laço requestAnimationFrame
+     (waveLoop) que mexe no stroke-dashoffset dos .ewp, então redesenhar o SVG a cada tick não reinicia a onda */
+  let wave='';
+  if(!mini&&p!=null&&p<1&&!(S.wo.running||S.wo.dist>0||S.wo.arming)){const {i:wi,pos:wp}=trackPos(T,p),rem=[wp,...T.slice(wi+1)];let len=0;for(let k=1;k<rem.length;k++)len+=Math.hypot(rem[k][0]-rem[k-1][0],rem[k][1]-rem[k-1][1]);
+    /* fantasma: avatar do corredor (foto ou inicial), translúcido, simulando o que ele vai fazer à frente */
+    const gp=profile(),gph=gp&&gp.photo,R=30,ghost=`<circle r="${R+9}" fill="#9fd9ff" fill-opacity=".14"/>`+(gph
+      ?`<defs><clipPath id="gc"><circle r="${R}"/></clipPath></defs><circle r="${R}" fill="#080f17"/><image href="${esc(gph)}" x="${-R}" y="${-R}" width="${2*R}" height="${2*R}" preserveAspectRatio="xMidYMid slice" clip-path="url(#gc)"/><circle r="${R}" fill="none" stroke="#ffa13d" stroke-width="5"/><circle r="${R+3}" fill="none" stroke="#fff" stroke-width="2"/>`
+      :`<circle r="${R}" fill="#ffa13d" stroke="#fff" stroke-width="4"/><text dy=".35em" text-anchor="middle" font-size="30" font-weight="700" fill="#000000">${esc(((gp&&gp.name)||'🚴')[0].toUpperCase())}</text>`);
+    const rd=d(rem),L=len.toFixed(1),ex=`d="${rd}" pathLength="${L}" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dashoffset="999" data-len="${L}"`,gap=(len+500).toFixed(0);
+    /* cauda de camadas translúcidas (vidro) que somem para trás + avatar fantasma na frente.
+       A cauda anda por stroke-dashoffset e o fantasma por getPointAtLength, ambos no waveLoop. Uma única onda, sem repetição no trecho. */
+    const tl=(g,w,c,o)=>`<path class="ewp" data-g="${g}" ${ex} stroke="${c}" stroke-opacity="${o}" stroke-width="${w}" stroke-dasharray="${g} ${gap}"/>`,hh=sw/2+8;
+    wave=`<g class="ew"><path class="ewr" d="${rd}" fill="none" stroke="none"/>${tl(240,sw+12,'#cfe9ff',.05)}${tl(170,sw+5,'#ffffff',.09)}${tl(100,sw*.55,'#ffffff',.2)}
+     <g class="ewh" opacity="0">${ghost}</g></g>`}
+  /* bandeira quadriculada no ponto onde a volta termina (em circuito fechado, é o mesmo ponto da largada) */
+  let flag='';
+  if(!mini){const fp=loop?s:e,fx=fp[0],fy=fp[1],H=88,FW=64,FH=44,up=fy-H-6>=-pad+2,dir=fx+FW+4<=w+pad?1:-1,y0=up?fy-H:fy+H-FH,cs=FW/8,rs=FH/4;
+    let ck='';for(let ro=0;ro<4;ro++)for(let c=0;c<8;c++)ck+=`<rect x="${(dir>0?fx:fx-FW)+c*cs}" y="${y0+ro*rs}" width="${cs}" height="${rs}" fill="${(ro+c)%2?'#10161f':'#ffffff'}"/>`;
+    flag=`<g aria-label="Chegada"><line x1="${fx}" y1="${fy}" x2="${fx}" y2="${up?fy-H:fy+H}" stroke="#000" stroke-width="9" stroke-linecap="round"/><line x1="${fx}" y1="${fy}" x2="${fx}" y2="${up?fy-H:fy+H}" stroke="#e8eef5" stroke-width="5" stroke-linecap="round"/>${ck}<rect x="${dir>0?fx:fx-FW}" y="${y0}" width="${FW}" height="${FH}" fill="none" stroke="#000" stroke-width="4"/></g>`}
+  return `<svg viewBox="${-pad} ${-pad} ${w+2*pad} ${h+2*pad}" class="w-full h-full" role="img" aria-label="Mapa do circuito">${road}${done}${wave}${marks}${flag}${rider}</svg>`}
 function grade(r,p){const e=r.elev,n=e.length-1,i=Math.min(n-1,Math.floor(p*n)),seg=r.dist*1000/n,a=Math.max(0,i-1),b=Math.min(n,i+2);
   return Math.max(-15,Math.min(15,(e[b]-e[a])/(seg*(b-a))*100))}
 
@@ -305,7 +326,7 @@ function shell(){const p=profile();
    <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('rotas','map','Rotas')}${tab('treino','gauge','Treino')}${tab('perfil','user','Perfil<span class="hidden sm:inline"> & Histórico</span>')}</nav>
    <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-white/80"></i></button></div></header>
   ${S.tab==='home'||S.tab==='treino'?`<main class="p-2 sm:p-3" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${S.tab==='home'?homeTab():treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${S.tab==='perfil'?perfil():rotas()}</main>`}`}
-function setTab(t){S.tab=t;render()}
+function setTab(t){if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
 function setHH(){const e=document.querySelector('header');if(e)document.documentElement.style.setProperty('--hh',e.offsetHeight+'px')}
 window.addEventListener('resize',setHH);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(setHH);
 function render(){$('#app').innerHTML=S.cur&&profile()?shell():home();setHH();lucide.createIcons();if(S.cur&&S.tab==='treino')updLive()}
@@ -414,7 +435,7 @@ function sensOverlay(){return `<div class="shrink-0 flex flex-col items-end gap-
 function treino(){
   const r=route(),w=S.wo;
   if(!r)return `<div class="p-10 text-center text-zinc-400 border border-dashed border-line rounded-2xl">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</div>`;
-  w.route=r.id;const started=w.dist>0||w.running;
+  w.route=r.id;const started=w.dist>0||w.running||!!w.arming;
   const INs=IN.replace('py-2','py-1.5 lg:py-2');
   /* box de métrica (antes de iniciar) */
   const mt=(id,l,u,sp,c='',lg='lg:col-span-1')=>`<div class="${sp} ${lg} rounded-xl bg-panel border border-line px-3 py-1 lg:py-2 min-w-0"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">${l}</div><div class="font-display text-2xl lg:text-4xl font-bold leading-tight tabular-nums truncate ${c}"><span id="${id}">--</span> <span class="text-xs lg:text-sm text-zinc-500">${u}</span></div></div>`;
@@ -423,7 +444,7 @@ function treino(){
   /* métrica sobre o mapa (canto esquerdo) */
   const mo=(ic,id,u,c='')=>`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="${ic}" class="w-4 h-4 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-base font-bold tabular-nums leading-none whitespace-nowrap ${c}"><span id="${id}">--</span>${u?`<span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">${u}</span>`:''}</div></div>`;
   const ms=`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="gauge" class="w-4 h-4 shrink-0 text-neon"></i><div class="font-display font-extrabold text-neon text-2xl leading-none tabular-nums whitespace-nowrap"><span id="m-spd">0.0</span><span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">km/h</span></div></div>`;
-  const playBtn=`<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started?'Retomar':'Iniciar'}`;
+  const playBtn=`<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started&&!w.arming?'Retomar':'Iniciar'}`;
   const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span id="m-prog" class="text-right"></span></div>`;
   /* o mapa fica num wrapper relativo: o SVG é redesenhado a cada segundo, os cartões por cima não */
   const mapArea=(left='')=>`<div class="flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div id="m-map" class="absolute inset-0"></div></div></div><div class="shrink-0 flex items-end gap-3"><div class="relative flex-1 min-w-0 h-10 lg:h-12"><span class="absolute left-0 top-0 z-10 text-[9px] leading-none text-zinc-400 pointer-events-none">Altimetria</span><div id="m-elev" class="h-full [&>svg]:h-full [&>svg]:w-full"></div></div>${sensOverlay()}</div></div>`;
@@ -463,8 +484,24 @@ function treino(){
     ${wide?'':`<div class="tr-cols flex flex-col gap-2 shrink-0 lg:shrink lg:min-h-0 lg:overflow-y-auto">${side}</div>`}
    </div>
   </div></div>`}
-function toggleWo(){const w=S.wo;w.running=!w.running;w.last=Date.now();w.running?wakeOn():wakeOff();render()}
-function resetWo(){const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0});wakeOff();store('cad_wo',null);
+/* Iniciar: contagem 3-2-1. Uma cortina escura faz fade-in durante o "3" (a troca de layout do mapa acontece com a tela coberta)
+   e fade-out gradual durante o "2" (tela 100% visível no "1"); os números ficam numa camada acima, fora do fade. O treino só começa quando a contagem termina. */
+var cdBusy=false;
+function startCountdown(){if(cdBusy)return;cdBusy=true;const w=S.wo;
+  if(!document.getElementById('cd-style')){const st=document.createElement('style');st.id='cd-style';st.textContent='@keyframes cdpop{0%{opacity:0;transform:scale(1.7)}30%{opacity:1}100%{opacity:1;transform:scale(1)}}';document.head.appendChild(st)}
+  const ov=document.createElement('div');ov.style.cssText='position:fixed;inset:0;z-index:9998;background:#05090f;opacity:0;touch-action:none';
+  const num=document.createElement('div');num.className='font-display';num.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;pointer-events:none;font-weight:800;font-size:10rem;line-height:1;color:#fff;text-shadow:0 4px 28px rgba(0,0,0,.65),0 0 40px rgba(106,195,255,.45)';
+  document.body.append(ov,num);
+  const show=n=>{num.textContent=n;num.style.animation='none';void num.offsetWidth;num.style.animation='cdpop .9s ease-out both'};
+  const ease='cubic-bezier(.45,0,.55,1)';
+  show(3);ov.animate([{opacity:0},{opacity:1}],{duration:900,easing:ease,fill:'forwards'});                      /* 0 s: "3" + fade-in suave */
+  setTimeout(()=>{w.arming=true;render()},950);                          /* tela coberta: troca para o layout de treino */
+  setTimeout(()=>show(2),1000);
+  setTimeout(()=>ov.animate([{opacity:1},{opacity:0}],{duration:1100,easing:ease,fill:'forwards'}),1400);   /* tela escura por mais tempo; clareia aos poucos e fica 100% visível aos 2,5 s (0,5 s depois do "1") */   /* 1 s: "2" + fade-out gradual, 100% visível quando chega o "1" */
+  setTimeout(()=>show(1),2000);                                          /* 2 s: "1" com a tela já totalmente visível */
+  setTimeout(()=>{ov.remove();num.remove();w.arming=false;w.running=true;w.last=Date.now();wakeOn();cdBusy=false;render()},3000)}   /* 3 s: começa */
+function toggleWo(){const w=S.wo;if(cdBusy)return;if(!w.running&&!(w.dist>0)){startCountdown();return}w.running=!w.running;w.last=Date.now();w.running?wakeOn():wakeOff();render()}
+function resetWo(){waveReset();const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,arming:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0});wakeOff();store('cad_wo',null);
   if(had&&S.cur)q({t:'del',tb:'active_workouts',col:'profile_id',val:S.cur})}
 function finish(auto){const w=S.wo,r=route(),p=profile();w.running=false;
   if(w.dist<0.05){toast('Treino muito curto para ser salvo');resetWo();render();return}
@@ -480,6 +517,19 @@ function updLive(){const L=live(),w=S.wo,r=route();if(!r)return;
   const mp=$('#m-map');if(mp)mp.innerHTML=trackSvg(r,p);
   SENS.forEach(([k])=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensInfo(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='shrink-0 '+sensCls(k)});
   set('m-prog',Math.round(p*100)+'% · faltam '+Math.max(0,r.dist-w.dist).toFixed(2)+' km')}
+/* anima a onda de energia do mapa (sentido do percurso); fase pelo relógio, independe do redesenho do SVG */
+/* fantasma + rastro só na pré-visualização (treino ainda não iniciado); recomeça atrás do ciclista 0,5 s depois de voltar à aba Treino ou de encerrar o treino (sp<0 = escondido) */
+var waveT0=performance.now()/1000+.5;
+function waveReset(){waveT0=performance.now()/1000+.5}
+(function waveLoop(){const t=performance.now()/1000,tails=document.querySelectorAll('.ewp'),ref=document.querySelector('.ewr');
+  if(tails.length&&ref){let sp=240*(t-waveT0);const len=+tails[0].dataset.len;           /* ~240 un/s ao longo do traçado */
+    if(sp>len+240+160){waveT0=t;sp=0}                                                    /* pausa curta e recomeça no ciclista */
+    tails.forEach(el=>el.setAttribute('stroke-dashoffset',(+el.dataset.g-sp).toFixed(1)));
+    const hd=document.querySelector('.ewh');
+    if(hd){if(sp<=len){const a=ref.getPointAtLength(sp);
+        hd.setAttribute('transform',`translate(${a.x.toFixed(1)} ${a.y.toFixed(1)})`);
+        hd.setAttribute('opacity',(.5*Math.max(0,Math.min(1,sp/50,(len-sp)/80))).toFixed(2))}else hd.setAttribute('opacity','0')}}
+  requestAnimationFrame(waveLoop)})();
 let tickN=0;
 /* tempo e distância usam o relógio real (Date.now), não a contagem de ticks: o iOS atrasa timers.
    Lacunas > 3 s (app em segundo plano) não são contadas. */
@@ -490,7 +540,7 @@ function advance(){const w=S.wo,now=Date.now(),dtRaw=Math.min(Math.max((now-(w.l
     if(w.dist>=r.dist){w.dist=r.dist;finish(true);return false}}
   return true}
 setInterval(()=>{if(!advance())return;const w=S.wo,now=Date.now();
-  if((w.running||w.dist>0)&&++tickN%3===0){const sv={...w,running:false,profile:S.cur,saved:now}; /* sobrevive se o iOS recarregar a página */
+  if((w.running||w.dist>0)&&++tickN%3===0){const sv={...w,running:false,arming:false,profile:S.cur,saved:now}; /* sobrevive se o iOS recarregar a página */
     store('cad_wo',sv);
     if(tickN%15===0&&S.cur)q({t:'up',tb:'active_workouts',row:{profile_id:S.cur,data:sv,saved:now}})} /* e, a cada ~15 s, vai para o Supabase */
   if(S.cur&&S.tab==='treino')updLive();else if(S.cur&&S.tab==='home')updHome()},1000);
