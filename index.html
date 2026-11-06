@@ -405,11 +405,12 @@ function sensorState(k){const now=Date.now();if(S.sim.on)return['Simulado','bg-n
   if(!S.bt[k])return['Desconectado','bg-zinc-600'];
   const ok=k==='hr'?now-S.sensor.th<5000:now-S.sensor.ts<4000;
   return ok?['Recebendo dados','bg-neon']:['Conectado · sem sinal','bg-ember']}
-const sensorTxt=k=>sensorState(k)[0]+(S.bt[k]&&!S.sim.on?' · '+S.bt[k]+(S.sensor.rate[k]&&sensorState(k)[1]==='bg-neon'?' · '+S.sensor.rate[k].toFixed(1)+' Hz':''):'');
-function sensorBox(){
-  const row=(k,l,ic)=>`<div class="flex items-center gap-2 py-0.5 lg:py-1 min-w-0"><i data-lucide="${ic}" class="w-4 h-4 text-zinc-400 shrink-0 hidden lg:block"></i><span id="ss-d-${k}" class="inline-block w-2.5 h-2.5 rounded-full shrink-0 lg:order-last ${sensorState(k)[1]}"></span><div class="flex-1 min-w-0"><div class="text-xs leading-tight truncate">${l}</div><div id="ss-t-${k}" class="text-[10px] lg:text-[11px] text-zinc-500 truncate leading-tight">${esc(sensorTxt(k))}</div><div class="hidden lg:block text-[11px] text-zinc-600 truncate">${S.bt[k]?esc(S.bt[k]):''}</div></div></div>`;
-  return `<section class="rounded-xl bg-panel border border-line px-3 py-1.5 lg:py-2 shrink-0 order-5 lg:order-none"><div class="hidden lg:flex items-center justify-between"><h3 class="font-display text-lg font-bold leading-none">Sensores</h3><button onclick="setTab('home')" class="text-[11px] px-2 py-1 rounded-md border border-line hover:border-neon">Gerenciar</button></div>
-   <div class="grid grid-cols-[1fr_1fr_1fr_auto] lg:grid-cols-1 gap-x-3 items-center">${row('ftms','Bike','bike')}${row('hr','Freq. card.','heart-pulse')}${row('csc','Veloc./cad.','activity')}<button onclick="setTab('home')" aria-label="Gerenciar sensores" class="lg:hidden p-2 -mr-1 rounded-lg border border-line text-zinc-400 active:border-neon"><i data-lucide="settings-2" class="w-4 h-4"></i></button></div></section>`}
+/* Status compacto dos sensores (sobre o mapa): ícone colorido + info curta; "-" quando desconectado */
+const SENS=[['ftms','bike'],['hr','heart-pulse'],['csc','activity']];
+const sensCls=k=>({'bg-neon':'text-neon','bg-ember':'text-ember'}[sensorState(k)[1]]||'text-zinc-500');
+function sensInfo(k){if(S.sim.on)return 'sim';if(!S.bt[k])return '-';
+  if(sensorState(k)[1]==='bg-neon')return S.sensor.rate[k]?S.sensor.rate[k].toFixed(1)+' Hz':'ok';return 's/ sinal'}
+function sensOverlay(){return `<div class="absolute right-0 bottom-0 z-10 flex flex-col items-end gap-1 pointer-events-none">${SENS.map(([k,ic])=>`<div class="flex items-center gap-1.5 bg-black/45 rounded-lg px-2 py-0.5"><span id="ss-t-${k}" class="text-xs tabular-nums text-zinc-300">${sensInfo(k)}</span><span id="ss-d-${k}" class="shrink-0 ${sensCls(k)}"><i data-lucide="${ic}" class="w-4 h-4"></i></span></div>`).join('')}</div>`}
 function treino(){
   const r=route(),w=S.wo;
   if(!r)return `<div class="p-10 text-center text-zinc-400 border border-dashed border-line rounded-2xl">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</div>`;
@@ -418,22 +419,26 @@ function treino(){
   /* box de métrica (antes de iniciar) */
   const mt=(id,l,u,sp,c='',lg='lg:col-span-1')=>`<div class="${sp} ${lg} rounded-xl bg-panel border border-line px-3 py-1 lg:py-2 min-w-0"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">${l}</div><div class="font-display text-2xl lg:text-4xl font-bold leading-tight tabular-nums truncate ${c}"><span id="${id}">--</span> <span class="text-xs lg:text-sm text-zinc-500">${u}</span></div></div>`;
   /* métrica compacta: ícone + número ao lado (dentro do box Circuito, depois de iniciar) */
-  const mi=(ic,id,u,c='',sp='col-span-2')=>`<div class="${sp} lg:col-span-1 flex items-center gap-2 min-w-0"><i data-lucide="${ic}" class="w-5 h-5 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-2xl lg:text-3xl font-bold tabular-nums leading-none truncate ${c}"><span id="${id}">--</span>${u?`<span class="text-xs font-sans font-normal text-zinc-500 ml-1">${u}</span>`:''}</div></div>`;
+  const mi=(ic,id,u,c='',sp='')=>`<div class="${sp} flex items-center gap-2 min-w-0"><i data-lucide="${ic}" class="w-5 h-5 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-2xl lg:text-3xl font-bold tabular-nums leading-none truncate ${c}"><span id="${id}">--</span>${u?`<span class="text-xs font-sans font-normal text-zinc-500 ml-1">${u}</span>`:''}</div></div>`;
+  /* métrica sobre o mapa (canto esquerdo) */
+  const mo=(ic,id,u,c='')=>`<div class="flex items-center gap-2 bg-black/45 rounded-lg px-2 py-0.5 w-fit"><i data-lucide="${ic}" class="w-5 h-5 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-2xl font-bold tabular-nums leading-none ${c}"><span id="${id}">--</span>${u?`<span class="text-xs font-sans font-normal text-zinc-500 ml-1">${u}</span>`:''}</div></div>`;
   const playBtn=`<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started?'Retomar':'Iniciar'}`;
   const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span id="m-prog" class="text-right"></span></div>`;
+  /* o mapa fica num wrapper relativo: o SVG é redesenhado a cada segundo, os cartões por cima não */
+  const mapArea=(left='')=>`<div class="relative flex-1 min-h-[110px] lg:min-h-0"><div id="m-map" class="absolute inset-0"></div>${left?`<div class="absolute left-0 top-0 z-10 flex flex-col gap-1 pointer-events-none">${left}</div>`:''}${sensOverlay()}</div>`;
   const circuit=started
    /* em treino: o Circuito é o box principal e carrega as métricas */
-   ?`<section class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[240px] lg:min-h-0">${mapHead}
+   ?`<section class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[260px] lg:min-h-0">${mapHead}
       <div class="h-1.5 rounded-full bg-line mb-2 overflow-hidden shrink-0"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div>
       <div class="flex-1 min-h-0 flex flex-col lg:flex-row gap-2 lg:gap-4">
        <div class="shrink-0 lg:w-64 lg:order-2 flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2">
          <div class="flex items-center gap-2 min-w-0"><i data-lucide="gauge" class="w-7 h-7 text-neon shrink-0"></i><div class="font-display font-extrabold text-neon text-5xl leading-none tabular-nums"><span id="m-spd">0.0</span><span class="text-sm text-zinc-500 ml-1">km/h</span></div></div>
          <div class="text-right shrink-0"><div class="text-[11px] text-zinc-400">Virtual <span id="m-fac" class="tabular-nums">×1.00</span></div><div class="font-display text-2xl font-bold text-ember leading-none tabular-nums"><span id="m-vspd">0.0</span><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
-        <div class="grid grid-cols-6 lg:grid-cols-2 gap-x-2 gap-y-2">${mi('rotate-cw','m-cad','rpm')}${mi('heart-pulse','m-hr','bpm','text-ember')}${mi('mountain','m-grade','')}${mi('route','m-dist','km','','col-span-3')}${mi('timer','m-time','','','col-span-3')}</div></div>
-       <div id="m-map" class="relative flex-1 min-h-[90px] lg:min-h-0 [&>svg]:absolute [&>svg]:inset-0"></div></div></section>`
+        <div class="grid grid-cols-2 gap-2">${mi('rotate-cw','m-cad','rpm')}${mi('route','m-dist','km')}</div></div>
+       ${mapArea(mo('timer','m-time','')+mo('mountain','m-grade','')+mo('heart-pulse','m-hr','bpm','text-ember'))}</div></section>`
    /* antes de iniciar: mapa simples; velocidade e métricas ficam em boxes próprios */
-   :`<section class="order-3 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[100px] lg:min-h-0">${mapHead}<div id="m-map" class="relative flex-1 min-h-0 [&>svg]:absolute [&>svg]:inset-0"></div></section>`;
+   :`<section class="order-3 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[130px] lg:min-h-0">${mapHead}${mapArea()}</section>`;
   const hero=started?'':`<section class="order-1 lg:order-none rounded-xl bg-gradient-to-br from-panel to-ink border border-line px-3 py-1.5 lg:py-3 shrink-0">
       <div class="flex items-end justify-between gap-3 lg:block">
        <div class="min-w-0"><div class="text-[11px] text-zinc-400">Velocidade</div>
@@ -442,6 +447,8 @@ function treino(){
         <div class="font-display text-2xl lg:text-xl font-bold text-ember leading-none tabular-nums lg:inline"><b id="m-vspd" class="font-bold">0.0</b><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
       <div class="h-1.5 rounded-full bg-line mt-2 overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div></section>
      <div class="order-2 lg:order-none grid grid-cols-6 lg:grid-cols-2 gap-2 shrink-0">${mt('m-cad','Cadência','rpm','col-span-2')}${mt('m-hr','Freq. cardíaca','bpm','col-span-2','text-ember')}${mt('m-grade','Inclinação','','col-span-2')}${mt('m-dist','Distância','km','col-span-2')}${mt('m-time','Tempo','','col-span-4','','lg:col-span-2')}</div>`;
+  const side=hero+simPanel();                    /* coluna direita (desktop): velocidade/métricas antes de iniciar, simulação */
+  const wide=!side.trim();                       /* sem nada na coluna direita: o circuito ocupa a largura toda */
   return `<div class="max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:gap-3 min-h-full lg:h-full">
    <section class="rounded-2xl bg-panel border border-line px-2.5 py-1 lg:p-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 shrink-0">
     <div class="flex-1 min-w-0 basis-[55%] lg:basis-auto lg:min-w-[150px]"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">Rota atual · ${r.dist.toFixed(1)} km${userBest(r)?' · Recorde '+fmt(userBest(r)):''}</div><div class="font-display text-lg lg:text-2xl font-bold truncate leading-tight">${esc(r.name)}</div></div>
@@ -454,15 +461,11 @@ function treino(){
     <button onclick="toggleWo()" class="flex-1 py-2.5 rounded-xl bg-brand text-white font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80 shadow-[0_6px_24px_rgba(10,120,210,.45)]">${playBtn}</button>
     ${started?`<button onclick="finish(false)" class="px-5 py-2.5 rounded-xl border border-ember text-ember font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80"><i data-lucide="flag" class="w-5 h-5"></i>Fim</button>`:''}</div>
    <div class="flex-1 lg:min-h-0 flex flex-col gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
-    <div class="tr-cols flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 lg:col-span-3">
+    <div class="tr-cols flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 ${wide?'lg:col-span-4':'lg:col-span-3'}">
      ${circuit}
      <section class="order-4 lg:order-none relative rounded-2xl bg-panel border border-line px-3 py-1 lg:py-2 shrink-0"><div class="absolute left-3 top-1 z-10 text-[10px] text-zinc-400 lg:static lg:text-[11px]">Altimetria</div><div id="m-elev" class="h-10 lg:h-20 [&>svg]:h-full"></div></section>
     </div>
-    <div class="tr-cols flex flex-col gap-2 shrink-0 lg:shrink lg:min-h-0 lg:overflow-y-auto">
-     ${hero}
-     ${sensorBox()}
-     ${simPanel()}
-    </div>
+    ${wide?'':`<div class="tr-cols flex flex-col gap-2 shrink-0 lg:shrink lg:min-h-0 lg:overflow-y-auto">${side}</div>`}
    </div>
   </div></div>`}
 function toggleWo(){const w=S.wo;w.running=!w.running;w.last=Date.now();w.running?wakeOn():wakeOff();render()}
@@ -480,7 +483,7 @@ function updLive(){const L=live(),w=S.wo,r=route();if(!r)return;
   set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));const p=Math.min(1,w.dist/r.dist);
   const gr=grade(r,p),fc=factor(gr);set('m-grade',gr.toFixed(1)+'%');set('m-fac','×'+fc.toFixed(2));set('m-vspd',(L.spd*fc).toFixed(1));const b=$('#m-bar');if(b)b.style.width=p*100+'%';const e=$('#m-elev');if(e)e.innerHTML=elevSvg(r,p);
   const mp=$('#m-map');if(mp)mp.innerHTML=trackSvg(r,p);
-  ['hr','csc','ftms'].forEach(k=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensorTxt(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='inline-block w-2.5 h-2.5 rounded-full shrink-0 '+sensorState(k)[1]});
+  SENS.forEach(([k])=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensInfo(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='shrink-0 '+sensCls(k)});
   set('m-prog',Math.round(p*100)+'% · faltam '+Math.max(0,r.dist-w.dist).toFixed(2)+' km')}
 let tickN=0;
 /* tempo e distância usam o relógio real (Date.now), não a contagem de ticks: o iOS atrasa timers.
