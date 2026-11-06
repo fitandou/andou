@@ -182,7 +182,7 @@ function getTrack(r){return r.track&&r.track.length>1?r.track:(trackCache[r.id]|
 function trackPos(T,p){const n=T.length,f=Math.min(1,Math.max(0,p))*(n-1),i=Math.min(n-2,Math.floor(f)),t=f-i,a=T[i],b=T[i+1];
   return{i,pos:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}}
 function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach(q=>{w=Math.max(w,q[0]);h=Math.max(h,q[1])});
-  const pad=mini?50:60,sw=mini?11:16,d=a=>a.map((q,i)=>(i?'L':'M')+q[0]+' '+q[1]).join(' '),full=d(T);
+  const pad=mini?50:46,sw=mini?11:16,d=a=>a.map((q,i)=>(i?'L':'M')+q[0]+' '+q[1]).join(' '),full=d(T);
   const loop=Math.hypot(T[0][0]-T[T.length-1][0],T[0][1]-T[T.length-1][1])<45;
   let done='',rider='';
   if(p!=null){const {i,pos}=trackPos(T,p);
@@ -421,15 +421,15 @@ function treino(){
   /* métrica compacta: ícone + número ao lado (dentro do box Circuito, depois de iniciar) */
   const mi=(ic,id,u,c='',sp='')=>`<div class="${sp} flex items-center gap-2 min-w-0"><i data-lucide="${ic}" class="w-5 h-5 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-2xl lg:text-3xl font-bold tabular-nums leading-none truncate ${c}"><span id="${id}">--</span>${u?`<span class="text-xs font-sans font-normal text-zinc-500 ml-1">${u}</span>`:''}</div></div>`;
   /* métrica sobre o mapa (canto esquerdo) */
-  const mo=(ic,id,u,c='')=>`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="${ic}" class="w-4 h-4 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-lg font-bold tabular-nums leading-none whitespace-nowrap ${c}"><span id="${id}">--</span>${u?`<span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">${u}</span>`:''}</div></div>`;
-  const ms=`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="gauge" class="w-4 h-4 shrink-0 text-neon"></i><div class="font-display font-extrabold text-neon text-3xl leading-none tabular-nums whitespace-nowrap"><span id="m-spd">0.0</span><span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">km/h</span></div></div>`;
+  const mo=(ic,id,u,c='')=>`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="${ic}" class="w-4 h-4 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-base font-bold tabular-nums leading-none whitespace-nowrap ${c}"><span id="${id}">--</span>${u?`<span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">${u}</span>`:''}</div></div>`;
+  const ms=`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="gauge" class="w-4 h-4 shrink-0 text-neon"></i><div class="font-display font-extrabold text-neon text-2xl leading-none tabular-nums whitespace-nowrap"><span id="m-spd">0.0</span><span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">km/h</span></div></div>`;
   const playBtn=`<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started?'Retomar':'Iniciar'}`;
   const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span id="m-prog" class="text-right"></span></div>`;
   /* o mapa fica num wrapper relativo: o SVG é redesenhado a cada segundo, os cartões por cima não */
-  const mapArea=(left='')=>`<div class="flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1.5">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div id="m-map" class="absolute inset-0"></div></div></div><div class="shrink-0 flex items-end gap-3"><div class="relative flex-1 min-w-0 h-10 lg:h-12"><span class="absolute left-0 top-0 z-10 text-[9px] leading-none text-zinc-400 pointer-events-none">Altimetria</span><div id="m-elev" class="h-full [&>svg]:h-full [&>svg]:w-full"></div></div>${sensOverlay()}</div></div>`;
+  const mapArea=(left='')=>`<div class="flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div id="m-map" class="absolute inset-0"></div></div></div><div class="shrink-0 flex items-end gap-3"><div class="relative flex-1 min-w-0 h-10 lg:h-12"><span class="absolute left-0 top-0 z-10 text-[9px] leading-none text-zinc-400 pointer-events-none">Altimetria</span><div id="m-elev" class="h-full [&>svg]:h-full [&>svg]:w-full"></div></div>${sensOverlay()}</div></div>`;
   const circuit=started
    /* em treino: o Circuito é o box principal e carrega as métricas */
-   ?`<section class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[260px] lg:min-h-0">${mapHead}
+   ?`<section class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 px-2 py-2.5 lg:p-4 flex flex-col flex-1 min-h-[260px] lg:min-h-0">${mapHead}
       <div class="flex items-center gap-2 mb-1.5 shrink-0"><div class="h-1.5 flex-1 rounded-full bg-line overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div><div class="text-[11px] text-zinc-400 leading-none shrink-0">Virtual <span id="m-fac" class="tabular-nums text-ember font-semibold">×1.00</span></div></div>
       <div class="flex-1 min-h-0 flex flex-col lg:flex-row gap-2 lg:gap-4">
        ${mapArea(ms+mo('route','m-dist','km')+mo('timer','m-time','')+mo('mountain','m-grade','')+mo('heart-pulse','m-hr','bpm','text-ember'))}</div></section>`
