@@ -416,14 +416,14 @@ function treino(){
   w.route=r.id;const started=w.dist>0||w.running;
   const INs=IN.replace('py-2','py-1.5 lg:py-2');
   /* box de métrica (antes de iniciar) */
-  const mt=(id,l,u,sp,c='',lg='lg:col-span-1')=>`<div class="${sp} ${lg} rounded-xl bg-panel border border-line px-3 py-1.5 lg:py-2 min-w-0"><div class="text-[11px] text-zinc-400 truncate">${l}</div><div class="font-display text-3xl lg:text-4xl font-bold leading-tight tabular-nums truncate ${c}"><span id="${id}">--</span> <span class="text-xs lg:text-sm text-zinc-500">${u}</span></div></div>`;
+  const mt=(id,l,u,sp,c='',lg='lg:col-span-1')=>`<div class="${sp} ${lg} rounded-xl bg-panel border border-line px-3 py-1 lg:py-2 min-w-0"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">${l}</div><div class="font-display text-2xl lg:text-4xl font-bold leading-tight tabular-nums truncate ${c}"><span id="${id}">--</span> <span class="text-xs lg:text-sm text-zinc-500">${u}</span></div></div>`;
   /* métrica compacta: ícone + número ao lado (dentro do box Circuito, depois de iniciar) */
   const mi=(ic,id,u,c='',sp='col-span-2')=>`<div class="${sp} lg:col-span-1 flex items-center gap-2 min-w-0"><i data-lucide="${ic}" class="w-5 h-5 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-2xl lg:text-3xl font-bold tabular-nums leading-none truncate ${c}"><span id="${id}">--</span>${u?`<span class="text-xs font-sans font-normal text-zinc-500 ml-1">${u}</span>`:''}</div></div>`;
   const playBtn=`<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started?'Retomar':'Iniciar'}`;
   const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span id="m-prog" class="text-right"></span></div>`;
   const circuit=started
    /* em treino: o Circuito é o box principal e carrega as métricas */
-   ?`<section class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[280px] lg:min-h-0">${mapHead}
+   ?`<section class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[240px] lg:min-h-0">${mapHead}
       <div class="h-1.5 rounded-full bg-line mb-2 overflow-hidden shrink-0"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div>
       <div class="flex-1 min-h-0 flex flex-col lg:flex-row gap-2 lg:gap-4">
        <div class="shrink-0 lg:w-64 lg:order-2 flex flex-col gap-2">
@@ -431,32 +431,32 @@ function treino(){
          <div class="flex items-center gap-2 min-w-0"><i data-lucide="gauge" class="w-7 h-7 text-neon shrink-0"></i><div class="font-display font-extrabold text-neon text-5xl leading-none tabular-nums"><span id="m-spd">0.0</span><span class="text-sm text-zinc-500 ml-1">km/h</span></div></div>
          <div class="text-right shrink-0"><div class="text-[11px] text-zinc-400">Virtual <span id="m-fac" class="tabular-nums">×1.00</span></div><div class="font-display text-2xl font-bold text-ember leading-none tabular-nums"><span id="m-vspd">0.0</span><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
         <div class="grid grid-cols-6 lg:grid-cols-2 gap-x-2 gap-y-2">${mi('rotate-cw','m-cad','rpm')}${mi('heart-pulse','m-hr','bpm','text-ember')}${mi('mountain','m-grade','')}${mi('route','m-dist','km','','col-span-3')}${mi('timer','m-time','','','col-span-3')}</div></div>
-       <div id="m-map" class="flex-1 min-h-[110px] lg:min-h-0"></div></div></section>`
+       <div id="m-map" class="relative flex-1 min-h-[90px] lg:min-h-0 [&>svg]:absolute [&>svg]:inset-0"></div></div></section>`
    /* antes de iniciar: mapa simples; velocidade e métricas ficam em boxes próprios */
-   :`<section class="order-3 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[150px] lg:min-h-0">${mapHead}<div id="m-map" class="flex-1 min-h-0"></div></section>`;
-  const hero=started?'':`<section class="order-1 lg:order-none rounded-xl bg-gradient-to-br from-panel to-ink border border-line px-3 py-2 lg:py-3 shrink-0">
+   :`<section class="order-3 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[100px] lg:min-h-0">${mapHead}<div id="m-map" class="relative flex-1 min-h-0 [&>svg]:absolute [&>svg]:inset-0"></div></section>`;
+  const hero=started?'':`<section class="order-1 lg:order-none rounded-xl bg-gradient-to-br from-panel to-ink border border-line px-3 py-1.5 lg:py-3 shrink-0">
       <div class="flex items-end justify-between gap-3 lg:block">
        <div class="min-w-0"><div class="text-[11px] text-zinc-400">Velocidade</div>
-        <div class="font-display font-extrabold text-neon leading-none tabular-nums text-6xl lg:text-7xl"><span id="m-spd">0.0</span><span class="text-base lg:text-xl text-zinc-500 ml-1">km/h</span></div></div>
+        <div class="font-display font-extrabold text-neon leading-none tabular-nums text-5xl lg:text-7xl"><span id="m-spd">0.0</span><span class="text-base lg:text-xl text-zinc-500 ml-1">km/h</span></div></div>
        <div class="text-right lg:text-left lg:mt-1 shrink-0 pb-0.5"><div class="text-[11px] text-zinc-400">Virtual <span id="m-fac" class="tabular-nums">×1.00</span></div>
-        <div class="font-display text-3xl lg:text-xl font-bold text-ember leading-none tabular-nums lg:inline"><b id="m-vspd" class="font-bold">0.0</b><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
+        <div class="font-display text-2xl lg:text-xl font-bold text-ember leading-none tabular-nums lg:inline"><b id="m-vspd" class="font-bold">0.0</b><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
       <div class="h-1.5 rounded-full bg-line mt-2 overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div></section>
      <div class="order-2 lg:order-none grid grid-cols-6 lg:grid-cols-2 gap-2 shrink-0">${mt('m-cad','Cadência','rpm','col-span-2')}${mt('m-hr','Freq. cardíaca','bpm','col-span-2','text-ember')}${mt('m-grade','Inclinação','','col-span-2')}${mt('m-dist','Distância','km','col-span-2')}${mt('m-time','Tempo','','col-span-4','','lg:col-span-2')}</div>`;
   return `<div class="max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:gap-3 min-h-full lg:h-full">
-   <section class="rounded-2xl bg-panel border border-line p-2 lg:p-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 shrink-0">
-    <div class="flex-1 min-w-0 basis-[55%] lg:basis-auto lg:min-w-[150px]"><div class="text-[11px] text-zinc-400 truncate">Rota atual · ${r.dist.toFixed(1)} km${userBest(r)?' · Recorde '+fmt(userBest(r)):''}</div><div class="font-display text-xl lg:text-2xl font-bold truncate leading-tight">${esc(r.name)}</div></div>
+   <section class="rounded-2xl bg-panel border border-line px-2.5 py-1 lg:p-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 shrink-0">
+    <div class="flex-1 min-w-0 basis-[55%] lg:basis-auto lg:min-w-[150px]"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">Rota atual · ${r.dist.toFixed(1)} km${userBest(r)?' · Recorde '+fmt(userBest(r)):''}</div><div class="font-display text-lg lg:text-2xl font-bold truncate leading-tight">${esc(r.name)}</div></div>
     ${started?'':`<button onclick="setTab('rotas')" aria-label="Trocar rota" class="p-2.5 lg:px-3 lg:py-2 rounded-lg border border-line text-sm active:border-neon lg:hover:border-neon flex items-center gap-2"><i data-lucide="map" class="w-4 h-4"></i><span class="hidden lg:inline">Trocar rota</span></button>`}
     <select onchange="setInten(this.value)" ${started?'disabled':''} aria-label="Intensidade da inclinação" title="Quanto a inclinação da rota reduz (subida) ou ajuda (descida) o seu avanço" class="${INs} w-auto disabled:opacity-50 ${started?'hidden lg:block':'flex-1 lg:flex-none'}">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${S.inten===k?'selected':''}>Inclinação: ${v.n}</option>`).join('')}</select>
     ${S.sim.on?`<select onchange="S.wo.mult=+this.value" class="${INs} w-auto" title="Acelera o tempo da simulação">${[1,10,30,60].map(m=>`<option value="${m}" ${w.mult===m?'selected':''}>${m}x</option>`).join('')}</select>`:''}
     <button onclick="toggleWo()" class="hidden lg:flex px-5 py-2 rounded-lg bg-brand text-white font-semibold items-center gap-2">${playBtn}</button>
     ${started?`<button onclick="finish(false)" class="hidden lg:flex px-4 py-2 rounded-lg border border-ember text-ember font-semibold items-center gap-2"><i data-lucide="flag" class="w-4 h-4"></i>Finalizar</button>`:''}</section>
    <div class="lg:hidden shrink-0 flex gap-2">
-    <button onclick="toggleWo()" class="flex-1 py-3 rounded-xl bg-brand text-white font-display text-2xl font-bold flex items-center justify-center gap-2 active:opacity-80 shadow-[0_6px_24px_rgba(10,120,210,.45)]">${playBtn}</button>
-    ${started?`<button onclick="finish(false)" class="px-5 py-3 rounded-xl border border-ember text-ember font-display text-2xl font-bold flex items-center justify-center gap-2 active:opacity-80"><i data-lucide="flag" class="w-5 h-5"></i>Fim</button>`:''}</div>
+    <button onclick="toggleWo()" class="flex-1 py-2.5 rounded-xl bg-brand text-white font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80 shadow-[0_6px_24px_rgba(10,120,210,.45)]">${playBtn}</button>
+    ${started?`<button onclick="finish(false)" class="px-5 py-2.5 rounded-xl border border-ember text-ember font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80"><i data-lucide="flag" class="w-5 h-5"></i>Fim</button>`:''}</div>
    <div class="flex-1 lg:min-h-0 flex flex-col gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
     <div class="tr-cols flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 lg:col-span-3">
      ${circuit}
-     <section class="order-4 lg:order-none rounded-2xl bg-panel border border-line px-3 py-1.5 lg:py-2 shrink-0"><div class="text-[11px] text-zinc-400">Altimetria</div><div id="m-elev" class="h-11 lg:h-20 [&>svg]:h-full"></div></section>
+     <section class="order-4 lg:order-none relative rounded-2xl bg-panel border border-line px-3 py-1 lg:py-2 shrink-0"><div class="absolute left-3 top-1 z-10 text-[10px] text-zinc-400 lg:static lg:text-[11px]">Altimetria</div><div id="m-elev" class="h-10 lg:h-20 [&>svg]:h-full"></div></section>
     </div>
     <div class="tr-cols flex flex-col gap-2 shrink-0 lg:shrink lg:min-h-0 lg:overflow-y-auto">
      ${hero}
