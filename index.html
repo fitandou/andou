@@ -591,7 +591,7 @@ function parseCSC(v){const f=v.getUint8(0);let o=1,cur={};
   prevCsc=cur;S.sensor.ts=Date.now();fastUpd('csc')}
 const IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 const BT_MSG=IOS?'No iPhone/iPad, Safari e Chrome não têm Bluetooth: abra este endereço no navegador Bluefy.':'Web Bluetooth não está disponível neste navegador (use Chrome/Edge em HTTPS ou localhost).';
-const devs={},rec={},BT_CFG={hr:['heart_rate','heart_rate_measurement'],csc:['cycling_speed_and_cadence','csc_measurement'],ftms:['fitness_machine','indoor_bike_data']};
+const devs={},rec={},BT_CFG={hr:['heart_rate','heart_rate_measurement'],csc:['cycling_speed_and_cadence','csc_measurement'],ftms:[0x1826,0x2AD2]};
 const BT_H={hr:e=>parseHR(e.target.value),csc:e=>parseCSC(e.target.value),ftms:e=>parseFTMS(e.target.value)}; /* referência fixa: evita ouvintes duplicados ao reconectar */
 async function attach(kind,dev){const [svc,ch]=BT_CFG[kind];
   const srv=await dev.gatt.connect(),sv=await srv.getPrimaryService(svc),c=await sv.getCharacteristic(ch);
