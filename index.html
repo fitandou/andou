@@ -661,7 +661,10 @@ function parseCSC(v){const f=v.getUint8(0);let o=1,cur={};
       if(dt>0)S.sensor.cad=dr/dt*60}}
   prevCsc=cur;S.sensor.ts=Date.now();fastUpd('csc')}
 const IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-const BT_MSG=IOS?'No iPhone/iPad, Safari e Chrome não têm Bluetooth: abra este endereço no navegador Bluefy.':'Web Bluetooth não está disponível neste navegador (use Chrome/Edge em HTTPS ou localhost).';
+const STANDALONE=!!(navigator.standalone||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches));
+const btMsg=()=>IOS?(STANDALONE?'O app instalado na Tela de Início não usa extensões do Safari. Abra o site direto no Safari (com a extensão de Bluetooth ativada) ou use o navegador Bluefy.':'Bluetooth não encontrado neste Safari. Ative a extensão de Bluetooth e permita para este site (botão aA na barra › Gerenciar Extensões), depois recarregue a página. Alternativa: navegador Bluefy.'):'Web Bluetooth não está disponível neste navegador (use Chrome/Edge em HTTPS ou localhost).';
+/* extensões do Safari podem injetar navigator.bluetooth depois do carregamento: espera um pouco antes de desistir */
+const waitBT=async(ms=2500)=>{for(let t=0;t<ms&&!navigator.bluetooth;t+=100)await new Promise(r=>setTimeout(r,100));return !!navigator.bluetooth}
 const devs={},rec={},BT_CFG={hr:['heart_rate','heart_rate_measurement'],csc:['cycling_speed_and_cadence','csc_measurement'],ftms:[0x1826,0x2AD2]};
 const BT_H={hr:e=>parseHR(e.target.value),csc:e=>parseCSC(e.target.value),ftms:e=>parseFTMS(e.target.value)}; /* referência fixa: evita ouvintes duplicados ao reconectar */
 async function attach(kind,dev){const [svc,ch]=BT_CFG[kind];
@@ -680,7 +683,7 @@ function wakeOff(){try{wake&&wake.release()}catch(e){}wake=null}
 document.addEventListener('visibilitychange',()=>{S.wo.last=Date.now();
   if(document.visibilityState==='visible'){if(S.wo.running)wakeOn();['hr','csc','ftms'].forEach(k=>{if(devs[k]&&!S.bt[k])reconnect(k)})}});
 async function pair(kind,all){
-  if(!navigator.bluetooth){toast(BT_MSG);return}
+  if(!navigator.bluetooth){toast('Procurando suporte a Bluetooth...');if(!(await waitBT())){toast(btMsg());return}}
   if(!window.isSecureContext){toast('Bluetooth exige HTTPS ou localhost. Abra por um endereço https://');return}
   const svc=BT_CFG[kind][0];
   toast('Procurando sensores... selecione o dispositivo na janela');
@@ -758,7 +761,7 @@ function btPanel(){
   const val=(k,ic,l,u)=>`<div class="flex items-center gap-3 py-2"><i data-lucide="${ic}" class="w-5 h-5 text-zinc-400"></i><div class="flex-1 min-w-0 text-sm">${l}</div><div class="text-right font-display text-3xl font-bold leading-none tabular-nums"><span id="hm-${k}" class="text-neon">${hmVal(k)}</span> <span class="text-xs font-sans font-normal text-zinc-500 inline-block w-9 text-left">${u}</span></div></div>`;
   const sl=(k,l,min,max,u)=>`<label class="block text-sm mt-3"><span class="flex justify-between"><span>${l}</span><span><b id="sv-${k}" class="text-neon">${S.sim[k]}</b> ${u}</span></span><input type="range" min="${min}" max="${max}" value="${S.sim[k]}" oninput="setSim('${k}',this.value)"></label>`;
   return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold flex items-center gap-2 mb-1"><i data-lucide="bluetooth" class="w-5 h-5 text-neon"></i>Sensores</h3>
-   ${navigator.bluetooth?'':`<p class="text-xs text-ember mb-2">${BT_MSG} Modo simulado ativado.</p>`}${IOS&&!('wakeLock' in navigator)?'<p class="text-xs text-zinc-400 mb-2">Para a tela não apagar durante o treino: Ajustes › Tela e Brilho › Bloqueio Automático › Nunca.</p>':''}
+   ${navigator.bluetooth?'':`<p class="text-xs text-ember mb-2">${btMsg()} Modo simulado ativado.</p>`}${IOS&&!('wakeLock' in navigator)?'<p class="text-xs text-zinc-400 mb-2">Para a tela não apagar durante o treino: Ajustes › Tela e Brilho › Bloqueio Automático › Nunca.</p>':''}
    ${row('ftms','bike','Girassol (FTMS)')}
    <p class="text-[11px] text-zinc-500 mt-1">Não aparece? <button onclick="pair('ftms',true)" class="underline hover:text-neon">listar todos os dispositivos</button></p>
    <div class="border-t border-line mt-2 pt-1">${val('spd','gauge','Velocidade','km/h')}${val('cad','rotate-cw','Cadência','rpm')}${val('hr','heart-pulse','Frequência cardíaca','bpm')}</div>
