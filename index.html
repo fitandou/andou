@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0a78d2">
 <title>Andou! – Ciclismo Indoor</title>
+<link rel="icon" type="image/x-icon" href="andou%21.ico">
+<link rel="shortcut icon" type="image/x-icon" href="andou%21.ico">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Andou!">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -17,7 +25,7 @@ tailwind.config={theme:{extend:{colors:{
   fontFamily:{display:['Archivo','"Arial Narrow"','Impact','sans-serif'],sans:['Figtree','system-ui','sans-serif']}}}}
 </script>
 <style>
-html{-webkit-text-size-adjust:100%;overscroll-behavior-y:none;color-scheme:dark;background:#000}
+html{-webkit-text-size-adjust:100%;overscroll-behavior-x:none;overscroll-behavior-y:none;color-scheme:dark;background:#000}
 body{background:#000;color:#e6f1fb;font-family:Figtree,system-ui,sans-serif;overscroll-behavior-y:none;
   padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);padding-bottom:env(safe-area-inset-bottom)}
 button,select,label{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -38,6 +46,7 @@ input[type=range]{accent-color:#0a78d2;width:100%}
 @keyframes recTxtL{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:none}}
 @keyframes bodyin{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}.bodyin{animation:bodyin .5s ease-out}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+main{touch-action:pan-y pinch-zoom}
 </style>
 </head>
 <body>
@@ -450,7 +459,7 @@ function recInit(){const ids=S.routes.map(r=>r.id);
 function recWhy(r){const hs=profile().history.filter(h=>h.routeId===r.id),dn=hs.filter(h=>h.done).length;
   return dn?'Concluída '+dn+'x · tente melhorar seu tempo':(hs.length?'Você começou, mas ainda não concluiu':'Pista nova para você')}
 const recTxt=r=>`<div class="font-display text-2xl font-bold truncate">${esc(r.name)}</div><div class="text-xs text-zinc-400 truncate">${r.dist.toFixed(1)} km · +${elevStats(r.elev).gain} m · ${userBest(r)?'Seu recorde '+fmt(userBest(r)):'Sem recorde'}</div><div class="text-xs text-zinc-500 truncate">${recWhy(r)}</div>`;
-const recRing=off=>`<svg viewBox="0 0 40 40" class="w-9 h-9 -rotate-90" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(156,163,175,.45)" stroke-width="4"/><circle cx="20" cy="20" r="16" fill="none" stroke="#fff" stroke-width="4" pathLength="100" stroke-dasharray="100" style="stroke-dashoffset:100;animation:recfill ${REC_MS}ms linear forwards;animation-delay:-${off}ms"/></svg>`;
+const recRing=off=>`<svg viewBox="0 0 40 40" class="w-5 h-5 sm:w-9 sm:h-9 -rotate-90" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(156,163,175,.45)" stroke-width="4"/><circle cx="20" cy="20" r="16" fill="none" stroke="#fff" stroke-width="4" pathLength="100" stroke-dasharray="100" style="stroke-dashoffset:100;animation:recfill ${REC_MS}ms linear forwards;animation-delay:-${off}ms"/></svg>`;
 function recSched(){clearTimeout(recT);const R=S.rec;if(!R||R.order.length<2||!$('#recTrack'))return;recT=setTimeout(()=>recGo(1),Math.max(50,REC_MS-(Date.now()-R.t0)))}
 function recGo(d){const R=S.rec,t=$('#recTrack');if(!R||!t)return;const n=R.order.length;R.i=(R.i+d+n)%n;R.t0=Date.now();
   const r=S.routes.find(x=>x.id===R.order[R.i]),vp=t.parentElement,nw=document.createElement('div');
@@ -500,11 +509,73 @@ function shell(){const p=profile();
    <div class="flex items-center gap-2 text-white py-1.5 sm:py-3"><i data-lucide="bike" class="w-5 h-5 sm:w-6 sm:h-6"></i><span class="font-display text-2xl sm:text-3xl font-extrabold">Andou!</span></div>
    <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('rotas','map','Rotas')}${tab('treino','gauge','Treino')}${tab('loja','shopping-bag','Loja')}${tab('garagem','warehouse','Garagem')}${tab('perfil','user','Perfil<span class="hidden sm:inline"> & Histórico</span>')}</nav>
    <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-white/80"></i></button></div></header>
-  ${S.tab==='home'||S.tab==='treino'?`<main class="p-2 sm:p-3" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${S.tab==='home'?homeTab():treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${S.tab==='perfil'?perfil():S.tab==='loja'?loja():S.tab==='garagem'?garagem():rotas()}</main>`}`}
+  ${mainHtml(S.tab)}`}
+const mainHtml=t=>t==='home'||t==='treino'?`<main class="p-2 sm:p-3" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${t==='home'?homeTab():treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${t==='perfil'?perfil():t==='loja'?loja():t==='garagem'?garagem():rotas()}</main>`;
 function setTab(t){if(t==='home'&&S.rec)S.rec.t0=Date.now();if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
 function setHH(){const e=document.querySelector('header');if(e)document.documentElement.style.setProperty('--hh',e.offsetHeight+'px')}
 window.addEventListener('resize',setHH);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(setHH);
-function render(){$('#app').innerHTML=S.cur&&profile()?shell():home();setHH();lucide.createIcons();if(S.cur&&S.tab==='treino')updLive();if(S.cur&&S.tab==='home')recSched()}
+
+/* ===== Deslizar o dedo para trocar de aba (só toque/mobile) =====
+   A aba vizinha acompanha o dedo. Proteções contra troca involuntária:
+   - só começa dentro do conteúdo (não na barra de abas), fora das bordas da tela (gesto de voltar do sistema),
+     fora de campos, gráficos e áreas com rolagem horizontal, e nunca com janela aberta;
+   - só "trava" como deslize se o movimento for claramente horizontal (diagonal/vertical = rolagem normal);
+   - só troca se arrastar mais de 1/3 da tela ou fizer um gesto rápido; senão volta ao lugar;
+   - segundo dedo, cancelamento do sistema ou re-render cancelam e voltam. */
+const TAB_ORDER=['home','rotas','treino','loja','garagem','perfil'];
+let SW=null;
+function navCenter(){const n=document.querySelector('header nav'),b=n&&n.querySelector('.tabbtn.on');if(n&&b)n.scrollLeft+=b.getBoundingClientRect().left-n.getBoundingClientRect().left-(n.clientWidth-b.offsetWidth)/2}
+function swAbort(){const s=SW;SW=null;if(!s)return;clearTimeout(s.tm);Object.values(s.pv||{}).forEach(p=>p.remove());
+  if(s.cur){s.cur.style.transform=s.cur.style.transition=s.cur.style.willChange=''}document.documentElement.style.overflowX=''}
+function swBlocked(el){
+  if(!el||!el.closest||!el.closest('main'))return true;
+  if(el.closest('input,textarea,select,canvas,[contenteditable],[data-noswipe]'))return true;
+  const m=$('#modal');if(m&&m.childElementCount)return true;
+  for(let n=el;n&&n.tagName!=='MAIN';n=n.parentElement){const o=getComputedStyle(n).overflowX;
+    if((o==='auto'||o==='scroll')&&n.scrollWidth>n.clientWidth+1)return true}
+  return false}
+function swMake(t){const k=S.tab,hd=document.querySelector('header');let h='';
+  S.tab=t;try{h=mainHtml(t)}finally{S.tab=k}
+  const p=document.createElement('div');p.setAttribute('inert','');p.setAttribute('aria-hidden','true');
+  p.style.cssText=`position:fixed;left:0;right:0;top:${hd.getBoundingClientRect().bottom}px;bottom:0;overflow:hidden;background:#000;z-index:20;pointer-events:none;will-change:transform;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)`;
+  p.innerHTML=h.replace(/\sid="/g,' data-i="');   /* sem ids duplicados */
+  document.body.appendChild(p);lucide.createIcons();return p}
+function swMove(dx){const s=SW,W=innerWidth,dir=dx<0?1:-1,t=TAB_ORDER[s.idx+dir];
+  dx=Math.max(-W,Math.min(W,dx));s.dx=dx;Object.values(s.pv).forEach(p=>p.style.display='none');
+  if(!t){s.cur.style.transform=`translate3d(${dx*.28}px,0,0)`;return}   /* primeira/última aba: resistência */
+  const p=s.pv[dir]||(s.pv[dir]=swMake(t));p.style.display='';
+  s.cur.style.transform=`translate3d(${dx}px,0,0)`;p.style.transform=`translate3d(${dir*W+dx}px,0,0)`}
+function swFinish(s,go){s.done=true;const W=innerWidth,tr='transform .26s cubic-bezier(.2,.8,.2,1)',pv=s.pv[s.dir];
+  s.cur.style.transition=tr;s.cur.style.transform=`translate3d(${go?-s.dir*W:0}px,0,0)`;
+  if(pv){pv.style.transition=tr;pv.style.transform=`translate3d(${go?0:s.dir*W}px,0,0)`}
+  let fin=false;const end=()=>{if(fin)return;fin=true;swAbort();if(go){window.scrollTo(0,0);setTab(s.next)}};
+  s.cur.addEventListener('transitionend',end,{once:true});s.tm=setTimeout(end,400)}
+document.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='touch')return;
+  if(SW){if(!SW.done)swAbort();return}   /* segundo dedo cancela */
+  if(!S.cur||!profile()||!document.querySelector('header')||e.clientX<18||e.clientX>innerWidth-18||swBlocked(e.target))return;
+  const idx=TAB_ORDER.indexOf(S.tab);if(idx<0)return;
+  SW={id:e.pointerId,x0:e.clientX,y0:e.clientY,idx,mode:0,dx:0,dir:1,pv:{},hist:[[performance.now(),e.clientX]]}},{passive:true});
+document.addEventListener('pointermove',e=>{
+  const s=SW;if(!s||s.done||e.pointerId!==s.id)return;
+  const dx=e.clientX-s.x0,dy=e.clientY-s.y0;
+  if(s.mode===0){
+    if(Math.abs(dx)<12&&Math.abs(dy)<12)return;
+    if(Math.abs(dx)<=Math.abs(dy)*1.8){SW=null;return}   /* não é claramente horizontal: rolagem normal */
+    s.cur=document.querySelector('main');if(!s.cur){SW=null;return}
+    s.mode=1;s.cur.style.willChange='transform';document.documentElement.style.overflowX='hidden'}
+  s.hist.push([performance.now(),e.clientX]);if(s.hist.length>6)s.hist.shift();
+  s.dir=dx<0?1:-1;swMove(dx)},{passive:true});
+document.addEventListener('touchmove',e=>{if(SW&&SW.mode===1&&e.cancelable)e.preventDefault()},{passive:false});
+function swEnd(e,cancel){
+  const s=SW;if(!s||s.done||e.pointerId!==s.id)return;
+  if(s.mode!==1){SW=null;return}
+  const W=innerWidth,dx=s.dx,dir=dx<0?1:-1,t=TAB_ORDER[s.idx+dir],a=s.hist[0],b=s.hist[s.hist.length-1],v=(b[1]-a[1])/Math.max(1,b[0]-a[0]);
+  s.dir=dir;s.next=t;
+  swFinish(s,!cancel&&!!t&&(Math.abs(dx)>W*.33||(Math.abs(v)>.45&&Math.abs(dx)>50&&Math.sign(v)===Math.sign(dx))))}
+document.addEventListener('pointerup',e=>swEnd(e,false),{passive:true});
+document.addEventListener('pointercancel',e=>swEnd(e,true),{passive:true});
+function render(){swAbort();$('#app').innerHTML=S.cur&&profile()?shell():home();setHH();lucide.createIcons();navCenter();if(S.cur&&S.tab==='treino')updLive();if(S.cur&&S.tab==='home')recSched()}
 
 /* ---------- Moedas, XP e eventos ---------- */
 /* Por km: moedas e XP pela distância + ganho de altimetria do km; ao final: conclusão e velocidade média; por evento vencido (constantes em ECO) */
@@ -1065,6 +1136,8 @@ async function boot(){
   catch(e){console.error(e);setSync('err');toast('Sem conexão com o Supabase: usando os dados salvos neste aparelho')}
   S.cur=null;bootRemote=remote;applyInten();render()}
 boot();
+/* PWA: registra o service worker (exige https ou localhost) */
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW:',e)));
 </script>
 </body>
 </html>
