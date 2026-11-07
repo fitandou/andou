@@ -31,7 +31,12 @@ input[type=range]{accent-color:#0a78d2;width:100%}
 #toast{transition:opacity .25s}
 /* mobile vertical: colunas viram "contents" para reordenar os blocos da aba Treino numa única coluna */
 @media(max-width:1023px){.tr-cols{display:contents!important}}
-@media(max-width:639px){.tabbtn{flex:1 1 0;justify-content:center;padding-left:.25rem!important;padding-right:.25rem!important}}
+@media(max-width:639px){.tabbtn{flex:1 1 0;justify-content:center;padding-left:.25rem!important;padding-right:.25rem!important}.tabbtn:not(.on) .lbl{display:none}.tabbtn.on{flex:2.2 1 0}}
+.hz-alert{box-shadow:0 0 0 2px #ff4d4d,0 0 20px rgba(255,77,77,.55)!important;animation:hzp .8s ease-in-out infinite alternate}@keyframes hzp{to{box-shadow:0 0 0 2px #ff4d4d,0 0 4px rgba(255,77,77,.2)}}
+@keyframes recfill{to{stroke-dashoffset:0}}
+@keyframes recTxtR{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}
+@keyframes recTxtL{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:none}}
+@keyframes bodyin{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}.bodyin{animation:bodyin .5s ease-out}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -44,11 +49,23 @@ window.addEventListener('load',function(){setTimeout(function(){if(typeof tailwi
 </script>
 <div id="app"></div>
 <div id="modal"></div>
+<div id="evt" class="fixed left-1/2 -translate-x-1/2 z-[55] w-[min(92vw,380px)] pointer-events-none" style="top:calc(var(--hh,110px) + .5rem);display:none"></div>
 <div id="toast" class="fixed left-1/2 -translate-x-1/2 z-[60] bg-neon text-ink font-semibold text-sm px-4 py-2 rounded-full opacity-0 pointer-events-none" style="bottom:calc(1.25rem + env(safe-area-inset-bottom))"></div>
 <!-- sem "accept": o seletor de arquivos do iOS deixa .gpx cinza; a validação é feita ao ler o XML -->
 <input type="file" id="gpxFile" class="hidden" style="display:none">
 
 <script>
+/* SQL para rodar UMA vez no Supabase (SQL Editor) — IMC / peso:
+   alter table profiles add column if not exists sex text default '';
+   create table if not exists weight_log(id text primary key, profile_id text not null references profiles(id) on delete cascade, date bigint not null, weight numeric not null);
+   alter table weight_log enable row level security;
+   create policy "weight_log_all" on weight_log for all using (true) with check (true);   -- mesma política aberta das demais tabelas
+   -- PONTUAÇÃO (rodar uma vez; sem isso o app grava os treinos sem pontos no banco):
+   alter table workouts add column if not exists pts int default 0, add column if not exists ev_ok int default 0, add column if not exists ev_tot int default 0;
+   -- ECONOMIA, GARAGEM, GHOST E FUGA DA HORDA (rodar uma vez; sem isso o app funciona, mas moedas/XP/equipamentos e o ghost ficam só neste aparelho):
+   alter table profiles add column if not exists game jsonb;   -- {coins, xp, inv:[ids], eq:{rodas,quadros,capacetes,sapatilhas}}
+   alter table workouts add column if not exists coins int default 0, add column if not exists xp int default 0, add column if not exists trace jsonb, add column if not exists mode text default 'normal';
+*/
 /* ---------- Utilidades ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -73,26 +90,74 @@ const DEMO=[
 const S={
   profiles:load('cad_profiles',[]),
   routes:load('cad_routes',null)||DEMO,
-  cur:load('cad_cur',null),
+  cur:null,
+  lastCur:load('cad_cur',null),
   tab:'home',
   sim:{on:!navigator.bluetooth,cad:80,hr:135,spd:28},
   bt:{hr:null,csc:null,ftms:null},
   sensor:{spd:0,cad:0,hr:0,pw:0,ts:0,th:0,rate:{}},
-  wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0},
+  wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0},
   edit:null
 };
 if(!load('cad_routes',null))store('cad_routes',S.routes);
 /* ---------- Intensidade de inclinação ---------- */
-const INT={off:{n:'Off',k:0},suave:{n:'Suave',k:.5},real:{n:'Realista',k:1},duro:{n:'Duro',k:1.6}};
+const INT={off:{n:'Off',k:0},suave:{n:'Suave',k:.5},real:{n:'Realista',k:1},duro:{n:'Difícil',k:1.6}};
 S.inten=INT[load('cad_inten','real')]?load('cad_inten','real'):'real';
 /* Fator aplicado à velocidade medida: subida reduz (≈0,5 a 8% no Realista), descida ajuda um pouco (máx. 1,5) */
-function factor(g){const k=INT[S.inten].k;return g>=0?Math.max(.2,1-.0625*g*k):Math.min(1.5,1-.03*g*k)}
+function factor(g){const k=INT[S.inten].k;return (g>=0?Math.max(.2,1-.0625*g*k):Math.min(1.5,1-.03*g*k))*gearMult(g)}
+function bestMode(){return S.bestFilter==='all'||INT[S.bestFilter]?S.bestFilter:S.inten}
+function setBestFilter(v){if(v!=='all'&&!INT[v])return;S.bestFilter=v;render()}
 function setInten(v){if(!INT[v]||S.wo.dist>0||S.wo.running)return;S.inten=v;store('cad_inten',v);const p=profile();if(p){p.inten=v;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)})}render()}
 function applyInten(){const pr=profile(),v=(pr&&pr.inten)||load('cad_inten','real');S.inten=INT[v]?v:'real'}
 const profile=()=>S.profiles.find(p=>p.id===S.cur);
 const route=()=>S.routes.find(r=>r.id===S.wo.route)||S.routes[0];
 const saveProfiles=()=>store('cad_profiles',S.profiles);
 const saveRoutes=()=>store('cad_routes',S.routes);
+
+/* ---------- Economia: Moedas de Engrenagem, XP, níveis e equipamentos ----------
+   Por km: moedas e XP crescem com a distância e com o ganho de altimetria do km (do GPX). Os níveis liberam itens da loja e modos. */
+const ECO={coinKm:20,coinGain:.5,xpKm:40,xpGain:1,coinConc:200,xpConc:150,coinVel:5,coinEvt:150,xpEvt:100,hordaMul:1.25};
+const FEAT={horda:2,ghostLider:3};                         /* nível mínimo para liberar o modo / o ghost do líder */
+const HORDA={delay:30,v0:14,vInc:1,vMax:27,catchKm:.01};   /* s pedalando até o zumbi acordar · km/h inicial · +km/h por minuto · km/h máx. · distância de captura */
+const RAR=[{n:'Comum',c:'#9dbddb'},{n:'Raro',c:'#6ac3ff'},{n:'Épico',c:'#c084fc'},{n:'Lendário',c:'#ffa13d'}];
+const SLOTS=[['rodas','Rodas','circle-dot'],['quadros','Quadros','bike'],['capacetes','Capacetes','hard-hat'],['sapatilhas','Sapatilhas','footprints']];
+/* b: flat = trechos planos (|inclinação| ≤ 2%) · climb = subidas (> 2%) · down = descidas (< -2%) · all = todo o percurso; valores somam entre as peças equipadas */
+const ITEMS=[
+ {id:'r0',slot:'rodas',n:'Rodas Padrão',r:0,price:0,lv:1,st:'spoke',b:{}},
+ {id:'r1',slot:'rodas',n:'Rodas Alumínio Pro',r:0,price:300,lv:1,st:'spoke',b:{flat:.01}},
+ {id:'r2',slot:'rodas',n:'Rodas Aerodinâmicas',r:1,price:900,lv:2,st:'aero',b:{flat:.02}},
+ {id:'r3',slot:'rodas',n:'Rodas Carbono 60 mm',r:2,price:2400,lv:5,st:'carbon',b:{flat:.035}},
+ {id:'r4',slot:'rodas',n:'Disco Lenticular',r:3,price:6000,lv:9,st:'disc',b:{flat:.05}},
+ {id:'q0',slot:'quadros',n:'Quadro Urbano',r:0,price:0,lv:1,st:'urban',b:{}},
+ {id:'q1',slot:'quadros',n:'Quadro Alumínio',r:0,price:400,lv:1,st:'alu',b:{climb:.01}},
+ {id:'q2',slot:'quadros',n:'Quadro Leve',r:1,price:1100,lv:3,st:'light',b:{climb:.03}},
+ {id:'q3',slot:'quadros',n:'Quadro Carbono Escalador',r:2,price:3000,lv:6,st:'carbon',b:{climb:.05}},
+ {id:'q4',slot:'quadros',n:'Quadro Titânio Lendário',r:3,price:7500,lv:10,st:'titan',b:{climb:.07,flat:.01}},
+ {id:'c0',slot:'capacetes',n:'Capacete Básico',r:0,price:0,lv:1,st:'basic',b:{}},
+ {id:'c1',slot:'capacetes',n:'Capacete Ventilado',r:0,price:250,lv:1,st:'vent',b:{down:.01}},
+ {id:'c2',slot:'capacetes',n:'Capacete Aero',r:1,price:800,lv:3,st:'aero',b:{down:.02}},
+ {id:'c3',slot:'capacetes',n:'Capacete Crono',r:2,price:2000,lv:6,st:'crono',b:{down:.03,flat:.01}},
+ {id:'c4',slot:'capacetes',n:'Capacete Dourado',r:3,price:5000,lv:9,st:'crono',b:{down:.04,flat:.015}},
+ {id:'s0',slot:'sapatilhas',n:'Sapatilha Básica',r:0,price:0,lv:1,st:'basic',b:{}},
+ {id:'s1',slot:'sapatilhas',n:'Sapatilha Rígida',r:0,price:250,lv:1,st:'strap',b:{all:.005}},
+ {id:'s2',slot:'sapatilhas',n:'Sapatilha Carbono',r:1,price:900,lv:3,st:'race',b:{all:.01}},
+ {id:'s3',slot:'sapatilhas',n:'Sapatilha Pro Tour',r:2,price:2200,lv:6,st:'race',b:{all:.015}},
+ {id:'s4',slot:'sapatilhas',n:'Sapatilha Lendária',r:3,price:5500,lv:9,st:'race',b:{all:.02}}];
+const ITEM={};ITEMS.forEach(i=>ITEM[i.id]=i);
+const STARTERS=['r0','q0','c0','s0'],STARTER_EQ={rodas:'r0',quadros:'q0',capacetes:'c0',sapatilhas:'s0'};
+/* Dados de jogo do perfil (moedas, XP, inventário, equipados). Perfis antigos começam com as moedas/XP do que já pedalaram. */
+function G(p=profile()){if(!p)return null;
+  if(!p.game||typeof p.game!=='object'){const hs=p.history||[];
+    p.game={coins:hs.reduce((a,h)=>a+(+h.coins||+h.pts||0),0),xp:hs.reduce((a,h)=>a+(+h.xp||Math.round((+h.dist||0)*ECO.xpKm)),0),inv:STARTERS.slice(),eq:{...STARTER_EQ}}}
+  const g=p.game;g.coins=+g.coins||0;g.xp=+g.xp||0;if(!Array.isArray(g.inv))g.inv=[];
+  STARTERS.forEach(i=>{if(!g.inv.includes(i))g.inv.push(i)});g.eq=g.eq||{};
+  SLOTS.forEach(([sl])=>{if(!g.eq[sl]||!g.inv.includes(g.eq[sl]))g.eq[sl]=STARTER_EQ[sl]});return g}
+const lvCost=l=>Math.round(300*Math.pow(l,1.35));          /* XP para sair do nível l para o l+1 */
+function lvInfo(xp){let l=1,r=xp;while(r>=lvCost(l)&&l<99){r-=lvCost(l);l++}return{l,cur:r,need:lvCost(l),pct:Math.min(1,r/lvCost(l))}}
+function gearBonus(p=profile()){const g=p&&G(p),o={flat:0,climb:0,down:0,all:0};if(!g)return o;
+  SLOTS.forEach(([sl])=>{const it=ITEM[g.eq[sl]];if(it)for(const k in it.b)o[k]+=it.b[k]});return o}
+/* multiplicador da velocidade virtual pelo terreno (inclinação do GPX): plano ±2%, subida > 2%, descida < -2% */
+function gearMult(gr){const b=gearBonus();return 1+b.all+(Math.abs(gr)<=2?b.flat:gr>2?b.climb:b.down)}
 
 /* ---------- Supabase ----------
    Preencha com os dados de Project Settings › API. Se ficarem vazios, o app
@@ -106,12 +171,14 @@ const syncDot=()=>`<span id="sync" title="${SYNC_UI[S.sync][1]}" class="inline-b
 function setSync(st){S.sync=st;const e=$('#sync');if(e){e.className='inline-block w-2.5 h-2.5 rounded-full shrink-0 '+SYNC_UI[st][0];e.title=SYNC_UI[st][1]}}
 
 /* Conversões objeto do app <-> linha do banco */
-const pRow=p=>({id:p.id,name:p.name,weight:p.weight,height:p.height,photo:p.photo||'',inten:p.inten||S.inten});
+const pRow=p=>({id:p.id,name:p.name,weight:p.weight,height:p.height,photo:p.photo||'',inten:p.inten||S.inten,sex:p.sex||'',game:G(p)});
+const wlRow=(pid,e)=>({id:e.id,profile_id:pid,date:e.date,weight:e.weight});
+const fromWl=x=>({id:x.id,date:+x.date,weight:+x.weight});
 const rRow=r=>({id:r.id,name:r.name,descr:r.desc||'',photo:r.photo||'',dist:r.dist,elev:r.elev,track:r.track||null,demo:!!r.demo,sim_elev:!!r.simElev});
-const wRow=(pid,h)=>({id:h.id,profile_id:pid,route_id:h.routeId,route_name:h.routeName,date:h.date,dist:h.dist,time:h.time,avg_spd:h.avgSpd||0,avg_hr:h.avgHr||0,max_hr:h.maxHr||0,done:!!h.done,inten:h.inten||'off'});
-const fromP=x=>({id:x.id,name:x.name,weight:+x.weight,height:+x.height,photo:x.photo||'',inten:x.inten,history:[]});
+const wRow=(pid,h)=>({id:h.id,profile_id:pid,route_id:h.routeId,route_name:h.routeName,date:h.date,dist:h.dist,time:h.time,avg_spd:h.avgSpd||0,avg_hr:h.avgHr||0,max_hr:h.maxHr||0,done:!!h.done,inten:h.inten||'off',coins:h.coins||0,xp:h.xp||0,trace:h.trace||null,mode:h.mode||'normal',ev_ok:h.evOk||0,ev_tot:h.evTot||0});
+const fromP=(x,o)=>({id:x.id,name:x.name,weight:+x.weight,height:+x.height,photo:x.photo||'',inten:x.inten,sex:x.sex!==undefined?(x.sex||''):((o&&o.sex)||''),game:(x.game!=null&&typeof x.game==='object')?x.game:((o&&o.game)||undefined),history:[],wlog:(o&&o.wlog)||[]});
 const fromR=x=>({id:x.id,name:x.name,desc:x.descr||'',photo:x.photo||'',dist:+x.dist,elev:x.elev,track:x.track||undefined,demo:x.demo,simElev:x.sim_elev});
-const fromW=x=>({id:x.id,routeId:x.route_id,routeName:x.route_name,date:+x.date,dist:+x.dist,time:+x.time,avgSpd:+x.avg_spd,avgHr:+x.avg_hr,maxHr:+x.max_hr,done:x.done,inten:x.inten});
+const fromW=x=>({id:x.id,routeId:x.route_id,routeName:x.route_name,date:+x.date,dist:+x.dist,time:+x.time,avgSpd:+x.avg_spd,avgHr:+x.avg_hr,maxHr:+x.max_hr,done:x.done,inten:x.inten,coins:+x.coins||+x.pts||0,xp:+x.xp||0,trace:Array.isArray(x.trace)?x.trace:null,mode:x.mode||'normal',evOk:+x.ev_ok||0,evTot:+x.ev_tot||0});
 
 /* Fila de gravações (outbox): persiste no localStorage e reenvia quando a conexão voltar */
 let outbox=load('cad_outbox',[]),flushing=false;
@@ -121,7 +188,10 @@ function q(op){if(!sb)return;
   outbox.push(op);store('cad_outbox',outbox);flush()}
 async function flush(){if(!sb||flushing||!outbox.length)return;flushing=true;
   try{while(outbox.length){const o=outbox[0];
-      const r=o.t==='up'?await sb.from(o.tb).upsert(o.row):await sb.from(o.tb).delete().eq(o.col,o.val);
+      let r=o.t==='up'?await sb.from(o.tb).upsert(o.row):await sb.from(o.tb).delete().eq(o.col,o.val);
+      /* banco ainda sem colunas novas (sex, game; pts/coins/xp/trace/mode/ev_*): regrava sem elas, uma por vez, conforme o erro aponta */
+      if(r.error&&o.t==='up'&&(o.tb==='profiles'||o.tb==='workouts')){const row={...o.row},cols=o.tb==='profiles'?['sex','game']:['coins','xp','trace','mode','pts','ev_ok','ev_tot'];
+        for(let i=0;i<8&&r.error;i++){const m=r.error.message||'';const c=cols.find(k=>k in row&&new RegExp('\\b'+k+'\\b','i').test(m));if(!c)break;delete row[c];r=await sb.from(o.tb).upsert(row)}}
       if(r.error){if(r.error.code){console.error(r.error);toast('O Supabase recusou uma gravação: '+r.error.message);outbox.shift();store('cad_outbox',outbox);continue}throw r.error}
       outbox.shift();store('cad_outbox',outbox)}
     setSync('ok')}
@@ -137,22 +207,96 @@ async function fetchAll(tb,col,asc=true){let out=[],from=0;
 
 /* Baixa tudo do Supabase para o estado local. Se o banco estiver vazio, envia os dados locais (migração). */
 async function pull(){
+  let L=null;try{L=await fetchAll('weight_log','date')}catch(e){console.warn('weight_log indisponível',e)}
   const [P,R,W,A]=await Promise.all([fetchAll('profiles','created_at'),fetchAll('routes','created_at',false),fetchAll('workouts','date',false),fetchAll('active_workouts','profile_id')]);
   if(!P.length&&!R.length){
-    S.profiles.forEach(p=>{q({t:'up',tb:'profiles',row:pRow(p)});(p.history||[]).forEach(h=>q({t:'up',tb:'workouts',row:wRow(p.id,h)}))});
+    S.profiles.forEach(p=>{q({t:'up',tb:'profiles',row:pRow(p)});wlog(p).forEach(e=>q({t:'up',tb:'weight_log',row:wlRow(p.id,e)}));(p.history||[]).forEach(h=>q({t:'up',tb:'workouts',row:wRow(p.id,h)}))});
     S.routes.forEach(r=>q({t:'up',tb:'routes',row:rRow(r)}));
     return null}
-  const by={};P.forEach(x=>by[x.id]=fromP(x));
+  const old={};S.profiles.forEach(p=>old[p.id]=p);
+  const by={};P.forEach(x=>by[x.id]=fromP(x,old[x.id]));
   W.forEach(x=>{if(by[x.profile_id])by[x.profile_id].history.push(fromW(x))});
+  if(L){P.forEach(x=>by[x.id].wlog=[]);L.forEach(x=>{if(by[x.profile_id])by[x.profile_id].wlog.push(fromWl(x))});
+    /* pesagens que só existem neste aparelho (ex.: tabela criada depois) sobem para o banco */
+    P.forEach(x=>{const b=by[x.id],ids=new Set(b.wlog.map(e=>e.id));((old[x.id]&&old[x.id].wlog)||[]).forEach(e=>{if(!ids.has(e.id)){b.wlog.push(e);q({t:'up',tb:'weight_log',row:wlRow(x.id,e)})}})})}
+  P.forEach(x=>{if(x.game==null&&by[x.id].game)q({t:'up',tb:'profiles',row:pRow(by[x.id])})});   /* moedas/XP que só existem neste aparelho */
   S.profiles=P.map(x=>by[x.id]);S.routes=R.map(fromR);
   saveProfiles();saveRoutes();
   const a=A.find(x=>x.profile_id===S.cur);return a?a.data:null}
 /* Perfis precisam existir no banco antes dos treinos (chave estrangeira): a fila mantém a ordem de inserção. */
 
+/* ---------- IMC, peso e silhueta ---------- */
+function wlog(p){if(!p.wlog)p.wlog=[];
+  if(!p.wlog.length){const e={id:'w0_'+p.id,date:Date.now(),weight:p.weight};p.wlog.push(e);saveProfiles();q({t:'up',tb:'weight_log',row:wlRow(p.id,e)})}
+  p.wlog.sort((a,b)=>a.date-b.date);return p.wlog}
+const wDue=p=>{const l=wlog(p);return Date.now()-l[l.length-1].date>=6048e5};
+const hhmm=t=>new Date(t).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+const bmiOf=p=>p.weight/Math.pow(p.height/100,2);
+const bmiInfo=b=>b<18.5?{n:'Abaixo do peso',c:'#6ac3ff'}:b<25?{n:'Peso ideal',c:'#34d399'}:b<30?{n:'Acima do peso',c:'#facc15'}:{n:'Muito acima do peso',c:'#ef4444'};
+function smooth(P){const n=P.length,f=v=>v.toFixed(1);let d=`M${f(P[0][0])},${f(P[0][1])}`;
+  for(let i=0;i<n;i++){const a=P[(i-1+n)%n],b=P[i],c=P[(i+1)%n],e=P[(i+2)%n];
+    d+=`C${f(b[0]+(c[0]-a[0])/6)},${f(b[1]+(c[1]-a[1])/6)} ${f(c[0]-(e[0]-b[0])/6)},${f(c[1]-(e[1]-b[1])/6)} ${f(c[0])},${f(c[1])}`}return d+'Z'}
+/* Silhueta: masculina (ombros largos) ou feminina (cintura marcada, cabelo); largura cresce com o IMC e a cor indica a faixa */
+function body(sex,bmi,c){const w=Math.min(1,Math.max(0,(bmi-16)/24)),s=.8+.6*w,f=sex==='f',
+    sh=(f?17:23)*s,ch=(f?15:21)*s,wa=(f?11:17)*s+(f?7:9)*w,hp=(f?20:18)*s,R=[[sh,66],[ch,92],[wa,120],[hp,150],[hp*.6,166]],
+    pts=[[60,56],...R.map(p=>[60+p[0],p[1]]),[60,170],...R.slice().reverse().map(p=>[60-p[0],p[1]])],
+    arm=x=>`<line x1="${60+x*(sh-3)}" y1="70" x2="${60+x*(sh+8+5*w)}" y2="140" />`,leg=x=>`<line x1="${60+x*hp*.5}" y1="152" x2="${60+x*(hp*.5+3)}" y2="238" />`;
+  return `<svg viewBox="0 0 120 250" class="bodyin h-56 sm:h-64 mx-auto" role="img" aria-label="Silhueta ${f?'feminina':'masculina'}, IMC ${bmi.toFixed(1)}" style="filter:drop-shadow(0 0 10px ${c}66)">
+   <g fill="${c}" stroke="${c}" stroke-linecap="round" style="transition:fill .4s,stroke .4s">
+   ${f?'<g opacity=".55"><ellipse cx="60" cy="30" rx="18" ry="17" stroke="none"/><line x1="44" y1="32" x2="43" y2="64" stroke-width="8"/><line x1="76" y1="32" x2="77" y2="64" stroke-width="8"/></g>':''}
+   <circle cx="60" cy="34" r="14" stroke="none"/>
+   <g stroke-width="${(9+5*w).toFixed(1)}">${arm(-1)}${arm(1)}</g>
+   <g stroke-width="${((f?12:13)+9*w).toFixed(1)}">${leg(-1)}${leg(1)}</g>
+   <path d="${smooth(pts)}" stroke-width="2"/></g></svg>`}
+function bmiBar(b){const pos=Math.min(100,Math.max(0,(b-15)/25*100));
+  return `<div class="relative pt-3"><div class="flex h-2.5 rounded-full overflow-hidden"><i style="width:14%;background:#6ac3ff"></i><i style="width:26%;background:#34d399"></i><i style="width:20%;background:#facc15"></i><i style="width:40%;background:#ef4444"></i></div><div class="absolute top-0 w-0.5 h-6 bg-white rounded" style="left:${pos}%"></div></div>`}
+function wChart(p){const l=wlog(p);if(l.length<2)return '<p class="text-sm text-zinc-400 mb-2">O gráfico aparece a partir da segunda pesagem.</p>';
+  const W=600,H=170,pl=38,pr=10,pt=10,pb=22,ws=l.map(e=>e.weight),hm=p.height/100,lo=18.5*hm*hm,hi=24.9*hm*hm;
+  let mn=Math.min(...ws),mx=Math.max(...ws);const pad=Math.max(1,(mx-mn)*.15);mn-=pad;mx+=pad;
+  const t0=l[0].date,t1=l[l.length-1].date,X=d=>pl+(t1===t0?.5:(d-t0)/(t1-t0))*(W-pl-pr),Y=v=>pt+(1-(v-mn)/(mx-mn))*(H-pt-pb),
+    b1=Math.max(mn,lo),b2=Math.min(mx,hi),dt=d=>new Date(d).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});
+  return `<svg viewBox="0 0 ${W} ${H}" class="w-full mb-2" role="img" aria-label="Evolução do peso">
+   ${b2>b1?`<rect x="${pl}" y="${Y(b2)}" width="${W-pl-pr}" height="${Y(b1)-Y(b2)}" fill="#34d399" fill-opacity=".13"/>`:''}
+   <line x1="${pl}" y1="${H-pb}" x2="${W-pr}" y2="${H-pb}" stroke="#17314a"/>
+   <polyline points="${l.map(e=>X(e.date).toFixed(1)+','+Y(e.weight).toFixed(1)).join(' ')}" fill="none" stroke="#6ac3ff" stroke-width="2.5" stroke-linejoin="round"/>
+   ${l.map(e=>`<circle cx="${X(e.date).toFixed(1)}" cy="${Y(e.weight).toFixed(1)}" r="4.5" fill="${bmiInfo(e.weight/(hm*hm)).c}" stroke="#000" stroke-width="1.5"/>`).join('')}
+   <g fill="#7a9dc0" font-size="11"><text x="${pl-6}" y="${Y(mx)+8}" text-anchor="end">${mx.toFixed(0)}</text><text x="${pl-6}" y="${Y(mn)}" text-anchor="end">${mn.toFixed(0)}</text>
+   <text x="${pl}" y="${H-5}">${dt(t0)}</text><text x="${W-pr}" y="${H-5}" text-anchor="end">${dt(t1)}</text></g></svg>
+   <div class="text-[11px] text-zinc-500 mb-2">Faixa verde = peso ideal para ${p.height} cm (${lo.toFixed(1)}–${hi.toFixed(1)} kg)</div>`}
+function bmiCard(p){const bmi=bmiOf(p),I=bmiInfo(bmi),hm=p.height/100,l=wlog(p),last=l[l.length-1],d=Math.floor((Date.now()-last.date)/864e5),due=wDue(p),
+    sx=p.sex?'':`<div class="text-xs text-zinc-400">Defina o sexo para ajustar a silhueta:<div class="flex gap-2 mt-1"><button onclick="setSex('m')" class="flex-1 py-1.5 rounded-lg border border-line hover:border-neon">Homem</button><button onclick="setSex('f')" class="flex-1 py-1.5 rounded-lg border border-line hover:border-neon">Mulher</button></div></div>`;
+  return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2">IMC e peso</h3>
+   <div class="grid sm:grid-cols-[210px_1fr] gap-4 items-center"><div>${body(p.sex,bmi,I.c)}</div>
+   <div class="space-y-3 min-w-0"><div><div class="text-xs text-zinc-400">Seu IMC</div><div class="flex items-baseline gap-3 flex-wrap"><span class="font-display text-6xl font-bold leading-none" style="color:${I.c}">${bmi.toFixed(1)}</span><span class="font-semibold" style="color:${I.c}">${I.n}</span></div></div>
+    ${bmiBar(bmi)}
+    <div class="text-sm text-zinc-400">${p.weight} kg · ${p.height} cm · peso ideal: ${(18.5*hm*hm).toFixed(1)}–${(24.9*hm*hm).toFixed(1)} kg</div>
+    <div class="flex items-center gap-2 flex-wrap text-xs text-zinc-400"><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#6ac3ff"></i>Abaixo</span><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#34d399"></i>Ideal</span><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#facc15"></i>Acima</span><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#ef4444"></i>Muito acima</span></div>
+    <button onclick="weightModal()" class="w-full sm:w-auto px-4 py-2.5 rounded-lg ${due?'bg-ember text-ink':'bg-brand text-white'} font-semibold flex items-center justify-center gap-2"><i data-lucide="scale" class="w-4 h-4"></i>${due?'Atualizar peso da semana':'Registrar peso'}</button>
+    <div class="text-xs ${due?'text-ember':'text-zinc-500'}">${due?'Já faz '+d+' dia'+(d===1?'':'s')+' desde a última pesagem. Atualize seu peso semanalmente.':'Última pesagem há '+(d?d+' dia'+(d===1?'':'s'):'menos de 1 dia')+'. Próxima atualização em '+Math.max(1,7-d)+' dia'+(7-d>1?'s':'')+'.'}</div>${sx}</div></div>
+   <div class="mt-4 border-t border-line pt-3"><h4 class="font-display text-xl font-bold mb-2">Progresso de peso</h4>${wChart(p)}
+   <ul class="max-h-60 overflow-y-auto">${l.slice().reverse().map((e,i,a)=>{const pv=a[i+1],df=pv?e.weight-pv.weight:0,b=bmiInfo(e.weight/(hm*hm));
+    return `<li class="flex items-center gap-3 py-1.5 border-b border-line last:border-0 text-sm"><i class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${b.c}"></i><span class="tabular-nums font-semibold">${e.weight.toFixed(1)} kg</span><span class="text-xs ${df>0?'text-ember':df<0?'text-emerald-300':'text-zinc-500'}">${pv?(df>0?'+':'')+df.toFixed(1)+' kg':'início'}</span><span class="ml-auto text-xs text-zinc-400">${new Date(e.date).toLocaleDateString('pt-BR')} · IMC ${(e.weight/(hm*hm)).toFixed(1)}</span></li>`}).join('')}</ul></div></section>`}
+function weightModal(auto){const p=profile();if(!p)return;
+  openModal(`<h2 class="font-display text-3xl font-bold mb-1">${auto?'Hora de pesar!':'Registrar peso'}</h2><p class="text-sm text-zinc-400 mb-4">${auto?'Faz uma semana ou mais desde a última pesagem. Atualize para acompanhar seu IMC.':'O IMC e a silhueta são atualizados na hora.'}</p>
+   <form onsubmit="saveWeight(event)" class="space-y-3"><label class="block text-sm">Peso atual (kg)<input name="pw" type="number" min="20" max="250" step="0.1" value="${p.weight}" required class="${IN} mt-1"></label>
+   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">${auto?'Depois':'Cancelar'}</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar</button></div></form>`)}
+function saveWeight(e){e.preventDefault();const p=profile(),w=Math.round(+e.target.elements.pw.value*10)/10;if(!(w>=20&&w<=250))return;
+  const en={id:uid(),date:Date.now(),weight:w};wlog(p).push(en);p.weight=w;saveProfiles();
+  q({t:'up',tb:'profiles',row:pRow(p)});q({t:'up',tb:'weight_log',row:wlRow(p.id,en)});closeModal();render();toast('Peso salvo · '+bmiInfo(bmiOf(p)).n)}
+function weightPrompt(){const p=profile();if(!p||S.wP===p.id||S.wo.running||S.wo.dist>0||$('#modal').innerHTML||!wDue(p))return;S.wP=p.id;weightModal(true)}
+function setSex(v){const p=profile();p.sex=v;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});render()}
+const sexField=v=>`<div class="text-sm">Sexo<div class="grid grid-cols-2 gap-2 mt-1">${[['m','Homem'],['f','Mulher']].map(([k,l])=>`<label class="cursor-pointer"><input type="radio" name="sx" value="${k}" ${v===k?'checked':''} required class="peer sr-only"><span class="block text-center py-2 rounded-lg border border-line peer-checked:border-neon peer-checked:text-neon peer-checked:bg-neon/10 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-neon">${l}</span></label>`).join('')}</div></div>`;
+function editProfileModal(){const p=profile();openModal(`<h2 class="font-display text-3xl font-bold mb-4">Editar perfil</h2>
+  <form onsubmit="saveEdit(event)" class="space-y-3"><label class="block text-sm">Nome<input name="pn" required maxlength="30" value="${esc(p.name)}" class="${IN} mt-1"></label>
+  ${sexField(p.sex)}<label class="block text-sm">Altura (cm)<input name="ph" type="number" min="100" max="250" value="${p.height}" required class="${IN} mt-1"></label>
+  <p class="text-xs text-zinc-500">Para mudar o peso, use "Registrar peso" (mantém o histórico).</p>
+  <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar</button></div></form>`)}
+function saveEdit(e){e.preventDefault();const f=e.target.elements,p=profile();p.name=f.pn.value.trim();p.sex=f.sx.value;p.height=+f.ph.value;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();render()}
+
 /* ---------- Ranking simulado ---------- */
-function userBest(r,p=profile()){const t=((p&&p.history)||[]).filter(h=>h.routeId===r.id&&h.done&&(h.inten||'off')===S.inten).map(h=>h.time);return t.length?Math.min(...t):null}
+function userBest(r,p=profile(),m=S.inten){const t=((p&&p.history)||[]).filter(h=>h.routeId===r.id&&h.done&&(h.mode||'normal')==='normal'&&(m==='all'||(h.inten||'off')===m)).map(h=>h.time);return t.length?Math.min(...t):null}
 function board(r){const rows=[];
-  S.profiles.forEach(p=>{const t=userBest(r,p);if(t)rows.push({name:p.name,time:t,me:p.id===S.cur})});
+  S.profiles.forEach(p=>{const t=userBest(r,p);if(t)rows.push({name:p.name,time:t,me:p.id===S.cur,pid:p.id})});
   return rows.sort((a,b)=>a.time-b.time).map((x,i)=>({...x,pos:i+1}));}
 const rankHtml=(rows,n)=>!rows.length?'<li class="py-1.5 text-zinc-500 text-sm">Nenhum tempo registrado ainda.</li>':rows.slice(0,n).map(x=>`<li class="flex items-center gap-3 py-1.5 ${x.me?'text-neon font-semibold':''}"><span class="w-6 text-center font-display text-lg ${x.pos<=3?'text-ember':'text-zinc-500'}">${x.pos}</span><span class="flex-1 truncate">${esc(x.name)}${x.me?' (você)':''}</span><span class="tabular-nums">${fmt(x.time)}</span></li>`).join('');
 
@@ -216,7 +360,14 @@ function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach
   if(!mini){const fp=loop?s:e,fx=fp[0],fy=fp[1],H=88,FW=64,FH=44,up=fy-H-6>=-pad+2,dir=fx+FW+4<=w+pad?1:-1,y0=up?fy-H:fy+H-FH,cs=FW/8,rs=FH/4;
     let ck='';for(let ro=0;ro<4;ro++)for(let c=0;c<8;c++)ck+=`<rect x="${(dir>0?fx:fx-FW)+c*cs}" y="${y0+ro*rs}" width="${cs}" height="${rs}" fill="${(ro+c)%2?'#10161f':'#ffffff'}"/>`;
     flag=`<g aria-label="Chegada"><line x1="${fx}" y1="${fy}" x2="${fx}" y2="${up?fy-H:fy+H}" stroke="#000" stroke-width="9" stroke-linecap="round"/><line x1="${fx}" y1="${fy}" x2="${fx}" y2="${up?fy-H:fy+H}" stroke="#e8eef5" stroke-width="5" stroke-linecap="round"/>${ck}<rect x="${dir>0?fx:fx-FW}" y="${y0}" width="${FW}" height="${FH}" fill="none" stroke="#000" stroke-width="4"/></g>`}
-  return `<svg viewBox="${-pad} ${-pad} ${w+2*pad} ${h+2*pad}" class="w-full h-full" role="img" aria-label="Mapa do circuito">${road}${done}${wave}${marks}${flag}${rider}</svg>`}
+  /* ghost (corredor fantasma) ou zumbi (Fuga da Horda), só com o treino iniciado */
+  let hzline='',ghm='',hzm='';
+  if(!mini&&p!=null&&(S.wo.running||S.wo.dist>0||S.wo.arming)){const wo=S.wo;
+    if(wo.mode==='horda'&&wo.hz&&wo.hz.rel){const zp=trackPos(T,Math.min(1,Math.max(0,wo.hz.z/r.dist))),rp=trackPos(T,p);
+      if(zp.i<=rp.i)hzline=`<path d="${d([zp.pos,...T.slice(zp.i+1,rp.i+1),rp.pos])}" fill="none" stroke="#ff4d4d" stroke-opacity=".85" stroke-width="${sw*.55}" stroke-linecap="round" stroke-dasharray="14 12"/>`;
+      hzm=zombieG(zp.pos[0],zp.pos[1],30)}
+    else if(wo.gh&&wo.mode!=='horda'){const gp=trackPos(T,Math.min(1,ghDist(wo.gh,wo.secs,r)/r.dist));ghm=ghostG(gp.pos[0],gp.pos[1],wo.gh)}}
+  return `<svg viewBox="${-pad} ${-pad} ${w+2*pad} ${h+2*pad}" class="w-full h-full" role="img" aria-label="Mapa do circuito">${road}${done}${wave}${hzline}${marks}${flag}${ghm}${hzm}${rider}</svg>`}
 function grade(r,p){const e=r.elev,n=e.length-1,i=Math.min(n-1,Math.floor(p*n)),seg=r.dist*1000/n,a=Math.max(0,i-1),b=Math.min(n,i+2);
   return Math.max(-15,Math.min(15,(e[b]-e[a])/(seg*(b-a))*100))}
 
@@ -251,16 +402,20 @@ function profileModal(){openModal(`<h2 class="font-display text-3xl font-bold mb
   <label class="block text-sm">Nome<input name="pn" required maxlength="30" class="${IN} mt-1"></label>
   <div class="grid grid-cols-2 gap-3"><label class="block text-sm">Peso (kg)<input name="pw" type="number" min="20" max="250" step="0.1" required class="${IN} mt-1"></label>
   <label class="block text-sm">Altura (cm)<input name="ph" type="number" min="100" max="250" required class="${IN} mt-1"></label></div>
+  ${sexField('')}
   ${photoField()}
   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar perfil</button></div></form>`)}
 function saveProfile(e){e.preventDefault();const f=e.target.elements;
-  const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:photoOf(f),inten:S.inten,history:[]};
-  S.profiles.push(p);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();selectProfile(p.id)}
+  const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:photoOf(f),inten:S.inten,sex:f.sx.value,history:[],wlog:[]};
+  S.profiles.push(p);q({t:'up',tb:'profiles',row:pRow(p)});wlog(p);saveProfiles();closeModal();selectProfile(p.id)}
 function photoModal(){openModal(`<h2 class="font-display text-3xl font-bold mb-4">Alterar foto</h2>
   <form onsubmit="savePhoto(event)" class="space-y-3">${photoField()}
   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar foto</button></div></form>`)}
 function savePhoto(e){e.preventDefault();const p=profile();p.photo=photoOf(e.target.elements);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();render()}
-function selectProfile(id){S.cur=id;store('cad_cur',id);applyInten();S.tab='home';render()}
+function selectProfile(id){S.cur=id;store('cad_cur',id);applyInten();S.tab='home';
+  /* retoma um treino interrompido só para o perfil que estava treinando (na primeira seleção após abrir o app) */
+  if(bootRemote!==undefined){const rm=bootRemote;bootRemote=undefined;restoreWo(rm)}
+  render();setTimeout(weightPrompt,300)}
 function switchProfile(){if(S.wo.running||S.wo.dist>0){if(!confirm('Há um treino em andamento. Sair e descartá-lo?'))return;resetWo()}S.cur=null;store('cad_cur',null);render()}
 function deleteProfile(){if(!confirm('Excluir este perfil e todo o histórico?'))return;resetWo();q({t:'del',tb:'profiles',col:'id',val:S.cur});S.profiles=S.profiles.filter(p=>p.id!==S.cur);saveProfiles();switchProfile()}
 
@@ -287,49 +442,123 @@ function recommend(){const p=profile();if(!p||!S.routes.length)return null;
     return{r,dn:hs.filter(h=>h.done).length,last:hs.length?Math.max(...hs.map(h=>h.date)):0}});
   info.sort((a,b)=>a.dn-b.dn||a.last-b.last||a.r.dist-b.r.dist);
   const x=info[0];x.why=x.dn===0?(x.last?'Você começou, mas ainda não concluiu':'Pista nova para você'):'É a que está há mais tempo sem pedalar';return x}
+/* ---------- Carrossel "Pistas Recomendadas" ---------- */
+const REC_MS=7000;let recT;
+const recShuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+function recInit(){const ids=S.routes.map(r=>r.id);
+  if(!S.rec||S.rec.order.length!==ids.length||!ids.every(id=>S.rec.order.includes(id)))S.rec={order:recShuffle(ids),i:0,t0:Date.now()}}
+function recWhy(r){const hs=profile().history.filter(h=>h.routeId===r.id),dn=hs.filter(h=>h.done).length;
+  return dn?'Concluída '+dn+'x · tente melhorar seu tempo':(hs.length?'Você começou, mas ainda não concluiu':'Pista nova para você')}
+const recTxt=r=>`<div class="font-display text-2xl font-bold truncate">${esc(r.name)}</div><div class="text-xs text-zinc-400 truncate">${r.dist.toFixed(1)} km · +${elevStats(r.elev).gain} m · ${userBest(r)?'Seu recorde '+fmt(userBest(r)):'Sem recorde'}</div><div class="text-xs text-zinc-500 truncate">${recWhy(r)}</div>`;
+const recRing=off=>`<svg viewBox="0 0 40 40" class="w-9 h-9 -rotate-90" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(156,163,175,.45)" stroke-width="4"/><circle cx="20" cy="20" r="16" fill="none" stroke="#fff" stroke-width="4" pathLength="100" stroke-dasharray="100" style="stroke-dashoffset:100;animation:recfill ${REC_MS}ms linear forwards;animation-delay:-${off}ms"/></svg>`;
+function recSched(){clearTimeout(recT);const R=S.rec;if(!R||R.order.length<2||!$('#recTrack'))return;recT=setTimeout(()=>recGo(1),Math.max(50,REC_MS-(Date.now()-R.t0)))}
+function recGo(d){const R=S.rec,t=$('#recTrack');if(!R||!t)return;const n=R.order.length;R.i=(R.i+d+n)%n;R.t0=Date.now();
+  const r=S.routes.find(x=>x.id===R.order[R.i]),vp=t.parentElement,nw=document.createElement('div');
+  /* slide lateral: a pista nova entra pelo lado da navegação e a atual sai pelo lado oposto (também no fim → início) */
+  nw.className='absolute inset-0';nw.innerHTML=`<div class="h-full">${cover(r,'h-full')}</div>`;nw.style.transform=`translateX(${d*100}%)`;
+  t.removeAttribute('id');nw.id='recTrack';vp.appendChild(nw);void nw.offsetWidth;
+  const tr='transform .55s cubic-bezier(.4,0,.2,1)';t.style.transition=nw.style.transition=tr;
+  t.style.transform=`translateX(${-d*100}%)`;nw.style.transform='translateX(0)';setTimeout(()=>t.remove(),600);
+  const tx=$('#recTxt');tx.innerHTML=recTxt(r);tx.style.animation='none';void tx.offsetWidth;tx.style.animation=`${d>0?'recTxtR':'recTxtL'} .55s cubic-bezier(.4,0,.2,1)`;
+  const g=$('#recRingBox');if(g)g.innerHTML=recRing(0);recSched();if(window.lucide)lucide.createIcons()}  /* avançar/voltar (manual ou automático) zera o círculo */
 function startNow(id){const w=S.wo;
   if(w.dist>0||w.running){toast('Já há um treino em andamento');setTab('treino');return}
-  w.route=id;w.running=true;w.last=Date.now();wakeOn();S.tab='treino';render()}
+  w.route=id;w.running=true;w.last=Date.now();ensureEvs();wakeOn();S.tab='treino';render()}
 function homeTab(){
-  const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0),bmi=p.weight/Math.pow(p.height/100,2),
+  recInit();const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0),bmi=p.weight/Math.pow(p.height/100,2),
     nb=S.routes.filter(r=>userBest(r)).length,rec=recommend(),last=h[0];
   const st=(l,v,u)=>`<div class="rounded-xl bg-panel border border-line px-3 py-2 lg:py-3 min-w-0"><div class="text-[11px] lg:text-xs text-zinc-400 truncate">${l}</div><div class="font-display text-2xl lg:text-4xl font-bold text-neon leading-tight truncate">${v}<span class="text-xs lg:text-sm text-zinc-500 ml-1">${u}</span></div></div>`;
   const recHtml=rec?`<section class="rounded-2xl bg-panel border border-line p-3 lg:p-4 flex flex-col gap-2 lg:flex-1 lg:min-h-0">
-    <h3 class="font-display text-xl lg:text-2xl font-bold flex items-center gap-2"><i data-lucide="route" class="w-5 h-5 text-neon"></i>Pista recomendada</h3>
-    <div class="relative rounded-xl overflow-hidden h-28 lg:h-auto lg:flex-1 lg:min-h-0 bg-ink"><div class="absolute inset-0">${cover(rec.r,'h-full')}</div></div>
-    <div class="min-w-0"><div class="font-display text-2xl font-bold truncate">${esc(rec.r.name)}</div>
-     <div class="text-xs text-zinc-400 truncate">${rec.r.dist.toFixed(1)} km · +${elevStats(rec.r.elev).gain} m · ${userBest(rec.r)?'Seu recorde '+fmt(userBest(rec.r)):'Sem recorde'}</div>
-     <div class="text-xs text-zinc-500 truncate">${rec.why}</div></div>
-    <button onclick="startNow('${rec.r.id}')" class="w-full py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="play" class="w-4 h-4"></i>Iniciar agora</button></section>`
+    <h3 class="font-display text-xl lg:text-2xl font-bold flex items-center gap-2"><i data-lucide="route" class="w-5 h-5 text-neon"></i>Pistas Recomendadas</h3>
+    <div class="relative rounded-xl overflow-hidden h-28 lg:h-auto lg:flex-1 lg:min-h-0 bg-ink"><div class="absolute inset-0 overflow-hidden"><div id="recTrack" class="absolute inset-0"><div class="h-full">${cover(S.routes.find(x=>x.id===S.rec.order[S.rec.i]),'h-full')}</div></div></div>
+     ${S.rec.order.length>1?`<button onclick="recGo(-1)" aria-label="Pista anterior" class="absolute left-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/65 text-white grid place-items-center"><i data-lucide="chevron-left" class="w-5 h-5"></i></button><button onclick="recGo(1)" aria-label="Próxima pista" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/65 text-white grid place-items-center"><i data-lucide="chevron-right" class="w-5 h-5"></i></button><div id="recRingBox" class="absolute bottom-1.5 right-1.5 pointer-events-none">${recRing(Date.now()-S.rec.t0)}</div>`:''}</div>
+    <div id="recTxt" class="min-w-0">${recTxt(S.routes.find(x=>x.id===S.rec.order[S.rec.i]))}</div>
+    <button onclick="startNow(S.rec.order[S.rec.i])" class="w-full py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="play" class="w-4 h-4"></i>Iniciar agora</button></section>`
    :`<section class="rounded-2xl border border-dashed border-line p-4 text-center text-zinc-400 text-sm lg:flex-1 grid place-items-center">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</section>`;
   return `<div class="max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-3 lg:h-full">
    <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-3 lg:min-h-0">
-    <section class="rounded-2xl bg-panel border border-line p-3 lg:p-4 flex items-center gap-3 shrink-0">${avatar(p,56)}
+    <section class="rounded-2xl bg-panel border border-line p-3 lg:p-4 flex items-center gap-3 shrink-0">${avatarXP(p,52)}
      <div class="min-w-0 flex-1"><div class="font-display text-3xl font-bold truncate leading-none">Olá, ${esc(p.name)}!</div>
       <div class="text-xs text-zinc-400 truncate mt-1">${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)} · Inclinação: ${INT[S.inten].n}</div>
-      <div class="text-xs text-zinc-500 truncate">${last?'Último treino: '+new Date(last.date).toLocaleDateString('pt-BR')+' · '+esc(last.routeName)+' · '+last.dist.toFixed(1)+' km':'Nenhum treino registrado ainda'}</div></div></section>
+      <div class="text-xs text-emerald-300 truncate">Nível ${lvInfo(G(p).xp).l} · ${G(p).coins.toLocaleString('pt-BR')} moedas · ${lvInfo(G(p).xp).cur.toLocaleString('pt-BR')}/${lvInfo(G(p).xp).need.toLocaleString('pt-BR')} XP</div>
+      <div class="text-xs text-zinc-500 truncate">${last?'Último treino: '+new Date(last.date).toLocaleDateString('pt-BR')+' · '+hhmm(last.date-last.time*1000)+' - '+hhmm(last.date)+' · '+esc(last.routeName)+' · '+last.dist.toFixed(1)+' km':'Nenhum treino registrado ainda'}</div></div></section>
+    ${wDue(p)?`<button onclick="weightModal()" class="w-full rounded-xl border border-ember/60 bg-ember/10 text-ember px-3 py-2 text-sm font-semibold flex items-center gap-2 shrink-0"><i data-lucide="scale" class="w-4 h-4"></i>Hora de atualizar seu peso da semana<i data-lucide="chevron-right" class="w-4 h-4 ml-auto"></i></button>`:''}
     <div class="grid grid-cols-4 gap-2 lg:gap-3 shrink-0">${st('Semana',weekKm(p).toFixed(1),'km')}${st('Total',km.toFixed(1),'km')}${st('Treinos',h.length,'')}${st('Recordes',nb,'')}</div>
     <section class="rounded-2xl bg-gradient-to-br from-neon/15 to-panel border border-neon/30 p-3 lg:p-5 flex flex-col justify-center gap-2 lg:flex-1 lg:min-h-0">
      <div class="flex items-center justify-between text-neon text-xs font-semibold"><span class="flex items-center gap-1.5"><i data-lucide="sparkles" class="w-4 h-4"></i>Mensagem do dia</span><button onclick="nextMsg()" class="flex items-center gap-1 text-zinc-400 hover:text-neon"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Outra</button></div>
      <p class="font-display text-xl lg:text-4xl font-bold leading-tight">${motivMsg(p)}</p></section>
     <button onclick="setTab('rotas')" class="w-full py-3 lg:py-5 rounded-2xl bg-brand text-white font-display text-3xl lg:text-4xl font-extrabold flex items-center justify-center gap-3 shrink-0 shadow-[0_8px_32px_rgba(10,120,210,.55)]"><i data-lucide="bike" class="w-8 h-8"></i>TREINAR<i data-lucide="arrow-right" class="w-7 h-7"></i></button>
    </div>
-   <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-2 lg:min-h-0">${recHtml}
+   <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-2 lg:min-h-0">${recHtml}${hordaCard()}
     <div class="lg:shrink-0 lg:max-h-[48%] lg:overflow-y-auto rounded-2xl">${btPanel()}</div></div>
   </div></div>`}
 
 /* ---------- Estrutura principal ---------- */
 function shell(){const p=profile();
-  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" class="tabbtn flex items-center gap-2 px-4 py-2 sm:py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-white text-white':'border-transparent text-white/70 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4"></i>${l}${id==='treino'&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}</button>`;
+  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" aria-label="${id}" class="tabbtn ${S.tab===id?'on':''} flex items-center gap-2 px-4 py-2 sm:py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-white text-white':'border-transparent text-white/70 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4 shrink-0"></i><span class="lbl">${l}</span>${id==='treino'&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}</button>`;
   return `<header class="bg-brand border-b border-white/15 sticky top-0 z-30"><div class="max-w-6xl mx-auto px-3 sm:px-4 flex items-center gap-x-2 sm:gap-x-4 flex-wrap">
    <div class="flex items-center gap-2 text-white py-1.5 sm:py-3"><i data-lucide="bike" class="w-5 h-5 sm:w-6 sm:h-6"></i><span class="font-display text-2xl sm:text-3xl font-extrabold">Andou!</span></div>
-   <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('rotas','map','Rotas')}${tab('treino','gauge','Treino')}${tab('perfil','user','Perfil<span class="hidden sm:inline"> & Histórico</span>')}</nav>
+   <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('rotas','map','Rotas')}${tab('treino','gauge','Treino')}${tab('loja','shopping-bag','Loja')}${tab('garagem','warehouse','Garagem')}${tab('perfil','user','Perfil<span class="hidden sm:inline"> & Histórico</span>')}</nav>
    <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-white/80"></i></button></div></header>
-  ${S.tab==='home'||S.tab==='treino'?`<main class="p-2 sm:p-3" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${S.tab==='home'?homeTab():treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${S.tab==='perfil'?perfil():rotas()}</main>`}`}
-function setTab(t){if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
+  ${S.tab==='home'||S.tab==='treino'?`<main class="p-2 sm:p-3" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${S.tab==='home'?homeTab():treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${S.tab==='perfil'?perfil():S.tab==='loja'?loja():S.tab==='garagem'?garagem():rotas()}</main>`}`}
+function setTab(t){if(t==='home'&&S.rec)S.rec.t0=Date.now();if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
 function setHH(){const e=document.querySelector('header');if(e)document.documentElement.style.setProperty('--hh',e.offsetHeight+'px')}
 window.addEventListener('resize',setHH);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(setHH);
-function render(){$('#app').innerHTML=S.cur&&profile()?shell():home();setHH();lucide.createIcons();if(S.cur&&S.tab==='treino')updLive()}
+function render(){$('#app').innerHTML=S.cur&&profile()?shell():home();setHH();lucide.createIcons();if(S.cur&&S.tab==='treino')updLive();if(S.cur&&S.tab==='home')recSched()}
+
+/* ---------- Moedas, XP e eventos ---------- */
+/* Por km: moedas e XP pela distância + ganho de altimetria do km; ao final: conclusão e velocidade média; por evento vencido (constantes em ECO) */
+/* Eventos aleatórios: cada um tem 5 s de aviso (com contagem 3-2-1-GO) e depois um desafio de "dur" segundos */
+const EVENTS=[
+ {id:'fire',t:'On Fire!',d:'Explosão de 10 segundos! Acelere acima da velocidade de agora e segure o ritmo.',dur:10,
+  ok:e=>e.s.filter(v=>v>e.base+2).length>=8},
+ {id:'cad',t:'Cadência de Ferro',d:'Pedale com 90 rpm ou mais por 15 segundos.',dur:15,
+  ok:e=>e.c.filter(v=>v>=90).length>=13},
+ {id:'sprint',t:'Sprint de Pelotão',d:'Chegue a 35 km/h e sustente por 8 segundos.',dur:8,
+  ok:e=>e.s.filter(v=>v>=35).length>=6},
+ {id:'firme',t:'Ritmo Firme',d:'Mantenha a velocidade estável, com variação de no máximo 2 km/h, por 20 segundos.',dur:20,
+  ok:e=>{const mx=Math.max(...e.s),mn=Math.min(...e.s);return mn>=8&&mx-mn<=2}}
+];
+/* Quantidade de eventos proporcional ao circuito (~1 a cada 3 km, entre 2 e 8), espaçados ao longo do percurso */
+function planEvents(r){const n=Math.min(8,Math.max(2,Math.round(r.dist/3))),out=[];
+  for(let t=0;out.length<n&&t<500;t++){const f=.1+Math.random()*.8;
+    if(out.every(x=>Math.abs(x.f-f)>=.06))out.push({f,ev:EVENTS[Math.floor(Math.random()*EVENTS.length)].id,st:'todo'})}
+  return out.sort((a,b)=>a.f-b.f)}
+function ensureEvs(){const w=S.wo,r=route();if(r&&!w.evs.length)w.evs=planEvents(r)}
+function evShow(h){const el=$('#evt');if(!el)return;el.innerHTML=h||'';el.style.display=h?'block':'none'}
+const evBox=(t,body)=>`<div class="bodyin mx-auto rounded-2xl border border-neon/40 bg-panel/90 backdrop-blur-sm p-3 text-center shadow-[0_8px_30px_rgba(0,0,0,.6)]"><div class="text-[10px] uppercase tracking-widest text-neon">${t}</div>${body}</div>`;
+/* soma moedas e XP do treino (no modo Horda valem ×ECO.hordaMul); o saldo do perfil só é creditado ao encerrar (finish) */
+function addGain(c,x){const w=S.wo,m=w.mode==='horda'?ECO.hordaMul:1;c=Math.round(c*m);x=Math.round(x*m);if(c<=0&&x<=0)return;w.coins+=c;w.xp+=x;
+  set('m-pts',w.coins.toLocaleString('pt-BR'));const f=$('#m-ptsfl');if(f){f.textContent='+'+c+(x?' · +'+x+' XP':'');f.style.opacity=1;clearTimeout(f._t);f._t=setTimeout(()=>f.style.opacity=0,1400)}}
+/* ganho de altimetria (m) do km k da rota, a partir do perfil de elevação */
+function gainKm(r,k){const e=r.elev,n=e.length-1;if(n<1)return 0;const i0=Math.round((k-1)/r.dist*n),i1=Math.min(n,Math.round(k/r.dist*n));let g=0;for(let i=i0+1;i<=i1;i++)if(e[i]>e[i-1])g+=e[i]-e[i-1];return g}
+function kmSync(){const w=S.wo,r=route();while(w.kmAw<Math.floor(w.dist+1e-9)){w.kmAw++;const g=r?gainKm(r,w.kmAw):0;addGain(ECO.coinKm+g*ECO.coinGain,ECO.xpKm+g*ECO.xpGain)}}
+/* Chamado a cada segundo com o treino em andamento */
+function evTick(){const w=S.wo,r=route();if(!r||!w.running||w.arming)return;
+  const L=live();w.spdH.push(L.spd);if(w.spdH.length>8)w.spdH.shift();
+  kmSync();
+  if(w.secs-(w.trLast||0)>=5){w.trace.push([Math.round(w.secs),+w.dist.toFixed(3)]);w.trLast=w.secs}   /* rastro (tempo, distância) para o ghost */
+  if(w.mode==='horda')return;                                                                              /* sem eventos aleatórios na Fuga da Horda */
+  if(!w.evCur){
+    /* só dispara após 5 min, com o ciclista pedalando e no ponto sorteado */
+    const nx=w.evs.find(x=>x.st==='todo');
+    if(!nx||w.secs<300||w.dist/r.dist<nx.f||L.spd<10)return;
+    const def=EVENTS.find(x=>x.id===nx.ev),h=w.spdH.slice(-5),base=h.reduce((a,b)=>a+b,0)/h.length;
+    nx.st='on';w.evCur={id:nx.ev,idx:w.evs.indexOf(nx),k:0,base,s:[],c:[]};
+    evShow(evBox('Evento · '+def.t,`<div class="text-sm text-zinc-200 mt-1">${def.d}</div><div class="text-xs text-zinc-500 mt-1">Prepare-se</div>`));
+    return}
+  const e=w.evCur,def=EVENTS.find(x=>x.id===e.id);e.k++;
+  if(e.k===1)return;
+  if(e.k<=4){evShow(evBox('Evento · '+def.t,`<div class="font-display text-7xl font-extrabold text-white leading-none my-2">${5-e.k}</div>`));return}
+  if(e.k===5)evShow(evBox('Evento · '+def.t,`<div class="font-display text-6xl font-extrabold text-ember leading-none my-2">GO!</div>`));
+  e.s.push(L.spd);e.c.push(L.cad);
+  if(e.s.length>=def.dur){
+    const won=def.ok(e);w.evs[e.idx].st=won?'won':'lost';w.evTot++;
+    if(won){w.evOk++;addGain(ECO.coinEvt,ECO.xpEvt)}
+    w.evCur=null;
+    evShow(evBox('Evento · '+def.t,`<div class="font-display text-3xl font-extrabold ${won?'text-emerald-300':'text-zinc-300'} my-1">${won?'Conquistado! +'+ECO.coinEvt+' moedas':'Não dessa vez'}</div>`));
+    setTimeout(()=>{if(!S.wo.evCur)evShow('')},2000);return}
+  if(e.k>5)evShow(`<div class="mx-auto w-fit rounded-full bg-panel/80 border border-ember/50 px-3 py-1 text-xs font-semibold text-ember">${def.t} · ${def.dur-e.s.length}s</div>`)}
 
 /* ---------- Sensores ---------- */
 function live(){if(S.sim.on)return{spd:S.sim.spd,cad:S.sim.cad,hr:S.sim.hr};
@@ -400,6 +629,53 @@ async function pair(kind,all){
 function toggleSim(){S.sim.on=!S.sim.on;render()}
 function setSim(k,v){S.sim[k]=+v;const el=$('#sv-'+k);if(el)el.textContent=v;updLive();updHome()}
 
+/* ---------- Ghost Run ----------
+   O ghost corre o melhor tempo prévio (seu ou do líder do ranking) na mesma pista e no mesmo modo de inclinação. Usa o rastro
+   (tempo, distância) gravado no treino; treinos antigos, sem rastro, caem num ritmo constante com o tempo total. */
+S.ghost=load('cad_ghost','me');
+function bestRun(r,p,m=S.inten){const l=((p&&p.history)||[]).filter(h=>h.routeId===r.id&&h.done&&(h.mode||'normal')==='normal'&&(h.inten||'off')===m);return l.length?l.reduce((a,b)=>b.time<a.time?b:a):null}
+function ghostFor(r){if(!r||S.ghost==='off')return null;let p=profile(),src='me';
+  if(S.ghost==='leader'&&lvInfo(G().xp).l>=FEAT.ghostLider){const b=board(r)[0],lp=b&&S.profiles.find(x=>x.id===b.pid);if(lp){p=lp;src='leader'}}
+  const run=bestRun(r,p);if(!run)return null;
+  return{src,name:p.name,me:p.id===S.cur,total:run.time,tr:run.trace&&run.trace.length>1?run.trace:null}}
+function setGhost(v){if(woBusy())return;if(v==='leader'&&lvInfo(G().xp).l<FEAT.ghostLider){toast('Ghost do líder desbloqueia no nível '+FEAT.ghostLider);render();return}S.ghost=v;store('cad_ghost',v);render()}
+function ghDist(gh,t,r){if(!gh)return 0;if(t>=gh.total)return r.dist;const tr=gh.tr;if(!tr)return r.dist*t/gh.total;
+  for(let i=1;i<tr.length;i++)if(t<=tr[i][0]){const a=tr[i-1],b=tr[i],f=b[0]>a[0]?(t-a[0])/(b[0]-a[0]):1;return a[1]+(b[1]-a[1])*f}return tr[tr.length-1][1]}
+function ghTime(gh,d,r){if(!gh)return 0;const tr=gh.tr;if(!tr)return gh.total*Math.min(1,d/r.dist);
+  for(let i=1;i<tr.length;i++)if(d<=tr[i][1]){const a=tr[i-1],b=tr[i],f=b[1]>a[1]?(d-a[1])/(b[1]-a[1]):1;return a[0]+(b[0]-a[0])*f}return gh.total}
+
+/* ---------- Modo "Fuga da Horda" ----------
+   Depois de HORDA.delay s pedalando, um zumbi sai da largada e avança linearmente pelo GPX, cada vez mais rápido. O ciclista precisa
+   manter distância; se o zumbi o alcançar, o modo termina (o treino é salvo). Chegar ao fim da rota = escapou. */
+function hordaCard(){const lv=lvInfo(G().xp).l,ok=lv>=FEAT.horda;
+  return `<section class="rounded-2xl border p-3 flex items-center gap-3 shrink-0" style="border-color:#3d6b34;background:linear-gradient(135deg,#0e1d10,#080f17)"><svg viewBox="-46 -46 92 92" class="w-14 h-14 shrink-0" aria-hidden="true">${zombieG(0,0,32)}</svg>
+   <div class="min-w-0 flex-1"><h3 class="font-display text-xl font-bold leading-none" style="color:#9be58a">Fuga da Horda</h3><p class="text-xs text-zinc-400 mt-1">Um zumbi vai atrás de você pela pista. Mantenha o ritmo e não deixe ele te alcançar. Moedas e XP ×${ECO.hordaMul}.</p></div>
+   ${ok?`<button onclick="startHorda()" class="shrink-0 px-3 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5" style="background:#2f7a2a;color:#fff"><i data-lucide="skull" class="w-4 h-4"></i>Fugir</button>`:`<div class="shrink-0 text-xs text-zinc-500 flex items-center gap-1"><i data-lucide="lock" class="w-3.5 h-3.5"></i>Nível ${FEAT.horda}</div>`}</section>`}
+function startHorda(){if(lvInfo(G().xp).l<FEAT.horda){toast('Fuga da Horda desbloqueia no nível '+FEAT.horda);return}
+  const w=S.wo;if(w.dist>0||w.running||cdBusy){toast('Já há um treino em andamento');setTab('treino');return}
+  const id=(S.rec&&S.rec.order[S.rec.i])||(S.routes[0]&&S.routes[0].id);if(!id)return;
+  w.route=id;w.mode='horda';w.hz={mv:0,rel:false,z:0,t:0,sp:0};S.tab='treino';render();startCountdown()}
+/* chamado pelo advance() a cada passo: acorda o zumbi, move e verifica a captura (devolve true se foi alcançado) */
+function hordaStep(m,L,r){const w=S.wo,z=w.hz;if(!z)return false;
+  if(!z.rel){if(L.spd>3)z.mv=(z.mv||0)+m;if(z.mv>=HORDA.delay){z.rel=true;z.z=0;z.t=0;toast('O zumbi acordou! Mantenha o ritmo')}return false}
+  z.t+=m;z.sp=Math.min(HORDA.vMax,HORDA.v0+HORDA.vInc*z.t/60);z.z+=z.sp/3600*m;
+  return z.z>=w.dist-HORDA.catchKm}
+function hordaOver(){finish(false)}
+function hordaModal(r){const lvl=r.lv1>r.lv0?`<div class="text-emerald-300 text-sm mb-3">Subiu para o nível ${r.lv1}!${unlocksAt(r.lv1).length?' Liberado: '+unlocksAt(r.lv1).map(esc).join(', ')+'.':''}</div>`:'';
+  openModal(`<div class="text-center py-2"><svg viewBox="-46 -46 92 92" class="mx-auto w-24 h-24" aria-hidden="true">${zombieG(0,0,32)}</svg><h2 class="font-display text-4xl font-bold mt-2 ${r.done?'text-emerald-300':'text-ember'}">${r.done?'Você escapou!':'A horda te alcançou!'}</h2>
+   <p class="text-zinc-300 text-sm mt-1">${r.done?'Você chegou ao fim da rota antes do zumbi.':'O zumbi alcançou você antes do fim da rota.'}</p>
+   <div class="grid grid-cols-3 gap-2 my-4 text-center">${[['Distância',r.dist.toFixed(2)+' km'],['Tempo',fmt(r.time)],['Recompensa','+'+r.coins.toLocaleString('pt-BR')]].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
+   <div class="text-xs text-zinc-400 mb-3">+${r.xp.toLocaleString('pt-BR')} XP · moedas de engrenagem</div>${lvl}<button onclick="closeModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Continuar</button></div>`,'max-w-sm')}
+/* chips de status do modo (ghost / horda): atualizados junto com os números */
+function updMode(){const w=S.wo,r=route();if(!r)return;
+  const gl=document.getElementById('m-gh');
+  if(gl&&w.gh){const gap=w.secs-ghTime(w.gh,w.dist,r),ah=gap<=0;gl.textContent=(ah?'−':'+')+fmt(Math.abs(gap));gl.parentElement.className='flex items-center gap-1 text-[11px] font-semibold shrink-0 '+(ah?'text-emerald-300':'text-ember')}
+  const hb=document.getElementById('m-hzbox'),hz=document.getElementById('m-hz'),ci=document.getElementById('circ');
+  if(hb&&hz&&w.mode==='horda'&&w.hz){const z=w.hz;let txt,cls='text-zinc-300',al=false;
+    if(!z.rel)txt=z.mv>0?Math.max(0,Math.ceil(HORDA.delay-z.mv))+' s':'--';
+    else{const mt=Math.max(0,(w.dist-z.z)*1000);txt=Math.round(mt)+' m';cls=mt>150?'text-emerald-300':mt>60?'text-ember':'text-red-400';al=mt<=60}
+    hz.textContent=txt;hb.className='flex items-center gap-1.5 w-fit font-display text-base font-bold tabular-nums '+cls;set('m-hzs',z.rel?'zumbi '+z.sp.toFixed(1)+' km/h':'zumbi dorme');if(ci)ci.classList.toggle('hz-alert',al)}}
+
 /* ---------- Treino ---------- */
 /* Home: leituras ao vivo; "-" enquanto a bike não está conectada */
 function hmVal(k){if(!(S.sim.on||S.bt.ftms))return '-';const L=live();
@@ -444,16 +720,19 @@ function treino(){
   /* métrica sobre o mapa (canto esquerdo) */
   const mo=(ic,id,u,c='')=>`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="${ic}" class="w-4 h-4 shrink-0 ${c||'text-zinc-400'}"></i><div class="font-display text-base font-bold tabular-nums leading-none whitespace-nowrap ${c}"><span id="${id}">--</span>${u?`<span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">${u}</span>`:''}</div></div>`;
   const ms=`<div class="flex items-center gap-1.5 w-fit"><i data-lucide="gauge" class="w-4 h-4 shrink-0 text-neon"></i><div class="font-display font-extrabold text-neon text-2xl leading-none tabular-nums whitespace-nowrap"><span id="m-spd">0.0</span><span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">km/h</span></div></div>`;
+  const hzChip=w.mode==='horda'?`<div id="m-hzbox" class="flex items-center gap-1.5 w-fit font-display text-base font-bold tabular-nums text-zinc-300"><i data-lucide="skull" class="w-4 h-4 shrink-0"></i><span id="m-hz">--</span></div><div id="m-hzs" class="text-[10px] text-zinc-500 leading-none -mt-1 whitespace-nowrap"></div>`:'';
+  const ghChip=w.gh&&w.mode!=='horda'?`<div class="flex items-center gap-1 text-[11px] font-semibold shrink-0 text-zinc-300" title="Diferença para o ghost (${esc(w.gh.name)})"><i data-lucide="ghost" class="w-3.5 h-3.5"></i><span id="m-gh">--</span></div>`:'';
+  const ghOK=lvInfo(G().xp).l>=FEAT.ghostLider;
   const playBtn=`<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started&&!w.arming?'Retomar':'Iniciar'}`;
-  const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span id="m-prog" class="text-right"></span></div>`;
+  const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span class="flex items-center gap-2 shrink-0"><span id="m-ptsfl" class="text-[11px] text-ember tabular-nums opacity-0 transition-opacity duration-300"></span><span class="flex items-center gap-1"><i data-lucide="cog" class="w-3.5 h-3.5 text-ember"></i><span id="m-pts" class="font-display text-sm lg:text-base font-bold text-neon tabular-nums">${(S.wo.coins||0).toLocaleString('pt-BR')}</span></span><span id="m-prog" class="text-right"></span></span></div>`;
   /* o mapa fica num wrapper relativo: o SVG é redesenhado a cada segundo, os cartões por cima não */
   const mapArea=(left='')=>`<div class="flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div id="m-map" class="absolute inset-0"></div></div></div><div class="shrink-0 flex items-end gap-3"><div class="relative flex-1 min-w-0 h-10 lg:h-12"><span class="absolute left-0 top-0 z-10 text-[9px] leading-none text-zinc-400 pointer-events-none">Altimetria</span><div id="m-elev" class="h-full [&>svg]:h-full [&>svg]:w-full"></div></div>${sensOverlay()}</div></div>`;
   const circuit=started
    /* em treino: o Circuito é o box principal e carrega as métricas */
-   ?`<section class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 px-2 py-2.5 lg:p-4 flex flex-col flex-1 min-h-[260px] lg:min-h-0">${mapHead}
-      <div class="flex items-center gap-2 mb-1.5 shrink-0"><div class="h-1.5 flex-1 rounded-full bg-line overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div><div class="text-[11px] text-zinc-400 leading-none shrink-0">Virtual <span id="m-fac" class="tabular-nums text-ember font-semibold">×1.00</span></div></div>
+   ?`<section id="circ" class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 px-2 py-2.5 lg:p-4 flex flex-col flex-1 min-h-[260px] lg:min-h-0">${mapHead}
+      <div class="flex items-center gap-2 mb-1.5 shrink-0"><div class="h-1.5 flex-1 rounded-full bg-line overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div>${ghChip}<div class="text-[11px] text-zinc-400 leading-none shrink-0">Virtual <span id="m-fac" class="tabular-nums text-ember font-semibold">×1.00</span></div></div>
       <div class="flex-1 min-h-0 flex flex-col lg:flex-row gap-2 lg:gap-4">
-       ${mapArea(ms+mo('route','m-dist','km')+mo('timer','m-time','')+mo('mountain','m-grade','')+mo('heart-pulse','m-hr','bpm','text-ember'))}</div></section>`
+       ${mapArea(hzChip+ms+mo('route','m-dist','km')+mo('timer','m-time','')+mo('mountain','m-grade','')+mo('heart-pulse','m-hr','bpm','text-ember'))}</div></section>`
    /* antes de iniciar: mapa simples; velocidade e métricas ficam em boxes próprios */
    :`<section class="order-3 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[130px] lg:min-h-0">${mapHead}${mapArea()}</section>`;
   const hero=started?'':`<section class="order-1 lg:order-none rounded-xl bg-gradient-to-br from-panel to-ink border border-line px-3 py-1.5 lg:py-3 shrink-0">
@@ -468,9 +747,10 @@ function treino(){
   const wide=!side.trim();                       /* sem nada na coluna direita: o circuito ocupa a largura toda */
   return `<div class="max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:gap-3 min-h-full lg:h-full">
    <section class="rounded-2xl bg-panel border border-line px-2.5 py-1 lg:p-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 shrink-0">
-    <div class="flex-1 min-w-0 basis-[55%] lg:basis-auto lg:min-w-[150px]"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">Rota atual · ${r.dist.toFixed(1)} km${userBest(r)?' · Recorde '+fmt(userBest(r)):''}</div><div class="font-display text-lg lg:text-2xl font-bold truncate leading-tight">${esc(r.name)}</div></div>
+    <div class="flex-1 min-w-0 basis-[55%] lg:basis-auto lg:min-w-[150px]"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">Rota atual · ${r.dist.toFixed(1)} km${w.mode==='horda'?' · FUGA DA HORDA':userBest(r)?' · Recorde '+fmt(userBest(r)):''}</div><div class="font-display text-lg lg:text-2xl font-bold truncate leading-tight">${esc(r.name)}</div></div>
     ${started?'':`<button onclick="setTab('rotas')" aria-label="Trocar rota" class="p-2.5 lg:px-3 lg:py-2 rounded-lg border border-line text-sm active:border-neon lg:hover:border-neon flex items-center gap-2"><i data-lucide="map" class="w-4 h-4"></i><span class="hidden lg:inline">Trocar rota</span></button>`}
     <select onchange="setInten(this.value)" ${started?'disabled':''} aria-label="Intensidade da inclinação" title="Quanto a inclinação da rota reduz (subida) ou ajuda (descida) o seu avanço" class="${INs} w-auto disabled:opacity-50 ${started?'hidden lg:block':'flex-1 lg:flex-none'}">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${S.inten===k?'selected':''}>Inclinação: ${v.n}</option>`).join('')}</select>
+    ${started||w.mode==='horda'?'':`<select onchange="setGhost(this.value)" aria-label="Ghost" title="Corra contra o seu melhor tempo ou contra o líder do ranking desta pista (mesmo modo de inclinação)" class="${INs} w-auto flex-1 lg:flex-none">${[['me','Ghost: Meu recorde'],['leader','Ghost: Líder'+(ghOK?'':' (Nv '+FEAT.ghostLider+')')],['off','Ghost: Desligado']].map(([k,l])=>`<option value="${k}" ${S.ghost===k?'selected':''} ${k==='leader'&&!ghOK?'disabled':''}>${l}</option>`).join('')}</select>`}
     ${S.sim.on?`<select onchange="S.wo.mult=+this.value" class="${INs} w-auto" title="Acelera o tempo da simulação">${[1,10,30,60].map(m=>`<option value="${m}" ${w.mult===m?'selected':''}>${m}x</option>`).join('')}</select>`:''}
     <button onclick="toggleWo()" class="hidden lg:flex px-5 py-2 rounded-lg bg-brand text-white font-semibold items-center gap-2">${playBtn}</button>
     ${started?`<button onclick="finish(false)" class="hidden lg:flex px-4 py-2 rounded-lg border border-ember text-ember font-semibold items-center gap-2"><i data-lucide="flag" class="w-4 h-4"></i>Finalizar</button>`:''}</section>
@@ -485,30 +765,49 @@ function treino(){
    </div>
   </div></div>`}
 /* Iniciar: contagem 3-2-1. Uma cortina escura faz fade-in durante o "3" (a troca de layout do mapa acontece com a tela coberta)
-   e fade-out gradual durante o "2" (tela 100% visível no "1"); os números ficam numa camada acima, fora do fade. O treino só começa quando a contagem termina. */
-var cdBusy=false;
-function startCountdown(){if(cdBusy)return;cdBusy=true;const w=S.wo;
+   e fade-out só no final do "1" (a tela clareia perto do sumiço do "1"); os números ficam numa camada acima, fora do fade. O treino só começa quando a contagem termina. */
+var cdBusy=false,cdCancel=false;
+function startCountdown(){if(cdBusy)return;cdBusy=true;cdCancel=false;const w=S.wo;
   if(!document.getElementById('cd-style')){const st=document.createElement('style');st.id='cd-style';st.textContent='@keyframes cdpop{0%{opacity:0;transform:scale(1.7)}30%{opacity:1}100%{opacity:1;transform:scale(1)}}';document.head.appendChild(st)}
   const ov=document.createElement('div');ov.style.cssText='position:fixed;inset:0;z-index:9998;background:#05090f;opacity:0;touch-action:none';
   const num=document.createElement('div');num.className='font-display';num.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;pointer-events:none;font-weight:800;font-size:10rem;line-height:1;color:#fff;text-shadow:0 4px 28px rgba(0,0,0,.65),0 0 40px rgba(106,195,255,.45)';
   document.body.append(ov,num);
   const show=n=>{num.textContent=n;num.style.animation='none';void num.offsetWidth;num.style.animation='cdpop .9s ease-out both'};
   const ease='cubic-bezier(.45,0,.55,1)';
-  show(3);ov.animate([{opacity:0},{opacity:1}],{duration:900,easing:ease,fill:'forwards'});                      /* 0 s: "3" + fade-in suave */
-  setTimeout(()=>{w.arming=true;render()},950);                          /* tela coberta: troca para o layout de treino */
-  setTimeout(()=>show(2),1000);
-  setTimeout(()=>ov.animate([{opacity:1},{opacity:0}],{duration:1100,easing:ease,fill:'forwards'}),1400);   /* tela escura por mais tempo; clareia aos poucos e fica 100% visível aos 2,5 s (0,5 s depois do "1") */   /* 1 s: "2" + fade-out gradual, 100% visível quando chega o "1" */
-  setTimeout(()=>show(1),2000);                                          /* 2 s: "1" com a tela já totalmente visível */
-  setTimeout(()=>{ov.remove();num.remove();w.arming=false;w.running=true;w.last=Date.now();wakeOn();cdBusy=false;render()},3000)}   /* 3 s: começa */
-function toggleWo(){const w=S.wo;if(cdBusy)return;if(!w.running&&!(w.dist>0)){startCountdown();return}w.running=!w.running;w.last=Date.now();w.running?wakeOn():wakeOff();render()}
-function resetWo(){waveReset();const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,arming:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0});wakeOff();store('cad_wo',null);
+  /* tempos (ms): STEP = intervalo entre os números; tIn = fade-in; tFade = fade-out.
+     A tela fica escura durante o "3", o "2" e quase todo o "1"; o fade-out começa perto do fim do "1" e termina junto com ele (3*STEP). */
+  const STEP=1500,tIn=900,tFade=900;
+  show(3);ov.animate([{opacity:0},{opacity:1}],{duration:tIn,easing:ease,fill:'forwards'});                  /* 0: "3" + fade-in suave */
+  setTimeout(()=>{if(!cdCancel){w.arming=true;render()}},tIn+50);                                           /* tela coberta: troca para o layout de treino */
+  setTimeout(()=>show(2),STEP);                                                                              /* "2" ainda sobre a tela preta */
+  setTimeout(()=>ov.animate([{opacity:1},{opacity:0}],{duration:tFade,easing:ease,fill:'forwards'}),3*STEP-tFade);   /* clareia só perto do sumiço do "1" */
+  setTimeout(()=>show(1),2*STEP);                                                                            /* "1" ainda sobre a tela escura */
+  setTimeout(()=>{const go=!cdCancel&&w.arming;ov.remove();num.remove();w.arming=false;cdBusy=false;       /* fim: só começa se a contagem não foi cancelada (ex.: Fim/reset) */
+    if(go){w.running=true;w.last=Date.now();w.trace=[[0,0]];w.trLast=0;if(w.mode==='horda')w.gh=null;else{w.gh=ghostFor(route());ensureEvs()}wakeOn()}render()},3*STEP)}
+function toggleWo(){const w=S.wo;if(cdBusy)return;if(!w.running&&!(w.dist>0)){startCountdown();return}w.running=!w.running;w.last=Date.now();w.running?wakeOn():(wakeOff(),evShow(''));render()}
+function resetWo(){if(cdBusy)cdCancel=true;waveReset();const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,arming:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0});evShow('');wakeOff();store('cad_wo',null);
   if(had&&S.cur)q({t:'del',tb:'active_workouts',col:'profile_id',val:S.cur})}
 function finish(auto){const w=S.wo,r=route(),p=profile();w.running=false;
   if(w.dist<0.05){toast('Treino muito curto para ser salvo');resetWo();render();return}
-  const done=auto||w.dist>=r.dist*.99,prevBest=userBest(r);
-  p.history.unshift({id:uid(),routeId:r.id,routeName:r.name,date:Date.now(),dist:+w.dist.toFixed(3),time:w.secs,avgSpd:w.dist/(w.secs/3600),avgHr:w.hrN?Math.round(w.hrSum/w.hrN):0,maxHr:Math.round(w.hrMax),done,inten:S.inten});
-  saveProfiles();q({t:'up',tb:'workouts',row:wRow(p.id,p.history[0])});resetWo();
-  toast(done?(!prevBest||p.history[0].time<prevBest?'Rota concluída: novo recorde!':'Rota concluída!'):'Treino salvo no histórico');render()}
+  const done=auto||w.dist>=r.dist*.99,prevBest=userBest(r),avg=w.dist/(w.secs/3600),horda=w.mode==='horda';
+  /* recompensa final: km restantes, conclusão e velocidade média */
+  kmSync();if(done)addGain(ECO.coinConc,ECO.xpConc);if(w.secs>0)addGain(avg*ECO.coinVel,0);
+  w.trace.push([Math.round(w.secs),+w.dist.toFixed(3)]);
+  const g=G(p),lv0=lvInfo(g.xp).l;g.coins+=w.coins;g.xp+=w.xp;const lv1=lvInfo(g.xp).l;
+  const h={id:uid(),routeId:r.id,routeName:r.name,date:Date.now(),dist:+w.dist.toFixed(3),time:w.secs,avgSpd:avg,avgHr:w.hrN?Math.round(w.hrSum/w.hrN):0,maxHr:Math.round(w.hrMax),done,inten:S.inten,coins:w.coins,xp:w.xp,evOk:w.evOk,evTot:w.evTot,mode:w.mode||'normal'};
+  if(done&&!horda)h.trace=w.trace;                         /* só treinos normais concluídos guardam o rastro (usado pelo ghost) */
+  p.history.unshift(h);const old=pruneTraces(p,r);
+  saveProfiles();q({t:'up',tb:'workouts',row:wRow(p.id,h)});old.forEach(x=>q({t:'up',tb:'workouts',row:wRow(p.id,x)}));q({t:'up',tb:'profiles',row:pRow(p)});
+  const res={coins:w.coins,xp:w.xp,dist:h.dist,time:h.time,done,lv0,lv1,rec:done&&!horda&&(!prevBest||h.time<prevBest)};
+  resetWo();
+  if(horda)toast(done?'Você escapou da horda!':'A horda te alcançou…');
+  else toast((done?(res.rec?'Rota concluída: novo recorde!':'Rota concluída!'):'Treino salvo no histórico')+' · +'+res.coins.toLocaleString('pt-BR')+' moedas · +'+res.xp.toLocaleString('pt-BR')+' XP');
+  render();
+  if(horda)setTimeout(()=>hordaModal(res),350);else if(lv1>lv0)setTimeout(()=>levelModal(lv1),500)}
+/* só o melhor tempo de cada rota/modo mantém o rastro (economiza espaço local e no Supabase); devolve os treinos que o perderam */
+function pruneTraces(p,r){const out=[],by={};
+  p.history.filter(h=>h.routeId===r.id&&h.done&&h.trace&&(h.mode||'normal')==='normal').forEach(h=>{const k=h.inten||'off';(by[k]=by[k]||[]).push(h)});
+  for(const k in by){by[k].sort((a,b)=>a.time-b.time);by[k].slice(1).forEach(h=>{delete h.trace;out.push(h)})}return out}
 function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v}
 function updLive(){const L=live(),w=S.wo,r=route();if(!r)return;
   set('m-spd',L.spd.toFixed(1));set('m-cad',Math.round(L.cad));set('m-hr',L.hr?Math.round(L.hr):'--');
@@ -516,12 +815,15 @@ function updLive(){const L=live(),w=S.wo,r=route();if(!r)return;
   const gr=grade(r,p),fc=factor(gr);set('m-grade',gr.toFixed(1)+'%');set('m-fac','×'+fc.toFixed(2));set('m-vspd',(L.spd*fc).toFixed(1));const b=$('#m-bar');if(b)b.style.width=p*100+'%';const e=$('#m-elev');if(e)e.innerHTML=elevSvg(r,p);
   const mp=$('#m-map');if(mp)mp.innerHTML=trackSvg(r,p);
   SENS.forEach(([k])=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensInfo(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='shrink-0 '+sensCls(k)});
-  set('m-prog',Math.round(p*100)+'% · faltam '+Math.max(0,r.dist-w.dist).toFixed(2)+' km')}
+  set('m-prog',Math.round(p*100)+'% · faltam '+Math.max(0,r.dist-w.dist).toFixed(2)+' km');updMode()}
 /* anima a onda de energia do mapa (sentido do percurso); fase pelo relógio, independe do redesenho do SVG */
 /* fantasma + rastro só na pré-visualização (treino ainda não iniciado); recomeça atrás do ciclista 0,5 s depois de voltar à aba Treino ou de encerrar o treino (sp<0 = escondido) */
 var waveT0=performance.now()/1000+.5;
 function waveReset(){waveT0=performance.now()/1000+.5}
-(function waveLoop(){const t=performance.now()/1000,tails=document.querySelectorAll('.ewp'),ref=document.querySelector('.ewr');
+(function waveLoop(){
+  /* fora da pré-visualização da aba Treino (outra aba, treino em andamento, página oculta) só confere a cada 0,4 s: sem custo por quadro */
+  if(document.hidden||S.tab!=='treino'||S.wo.running||S.wo.dist>0||S.wo.arming){setTimeout(waveLoop,400);return}
+  const t=performance.now()/1000,tails=document.querySelectorAll('.ewp'),ref=document.querySelector('.ewr');
   if(tails.length&&ref){let sp=240*(t-waveT0);const len=+tails[0].dataset.len;           /* ~240 un/s ao longo do traçado */
     if(sp>len+240+160){waveT0=t;sp=0}                                                    /* pausa curta e recomeça no ciclista */
     tails.forEach(el=>el.setAttribute('stroke-dashoffset',(+el.dataset.g-sp).toFixed(1)));
@@ -537,10 +839,11 @@ let tickN=0;
 function advance(){const w=S.wo,now=Date.now(),dtRaw=Math.min(Math.max((now-(w.last||now))/1000,0),3);w.last=now;
   if(w.running&&route()){const L=live(),m=(S.sim.on?w.mult:1)*dtRaw,r=route();const f=factor(grade(r,Math.min(1,w.dist/r.dist)));w.secs+=m;w.dist+=L.spd/3600*m*f;
     if(L.hr>0&&dtRaw>0){w.hrSum+=L.hr*dtRaw;w.hrN+=dtRaw;w.hrMax=Math.max(w.hrMax,L.hr)}
-    if(w.dist>=r.dist){w.dist=r.dist;finish(true);return false}}
+    if(w.dist>=r.dist){w.dist=r.dist;finish(true);return false}
+    if(w.mode==='horda'&&hordaStep(m,L,r)){hordaOver();return false}}
   return true}
-setInterval(()=>{if(!advance())return;const w=S.wo,now=Date.now();
-  if((w.running||w.dist>0)&&++tickN%3===0){const sv={...w,running:false,arming:false,profile:S.cur,saved:now}; /* sobrevive se o iOS recarregar a página */
+setInterval(()=>{if(!advance())return;evTick();const w=S.wo,now=Date.now();
+  if((w.running||w.dist>0)&&++tickN%3===0){const sv={...w,running:false,arming:false,profile:S.cur,saved:now,gh:w.gh?{src:w.gh.src,name:w.gh.name,total:w.gh.total,me:w.gh.me,re:1}:null}; /* sobrevive se o iOS recarregar a página */
     store('cad_wo',sv);
     if(tickN%15===0&&S.cur)q({t:'up',tb:'active_workouts',row:{profile_id:S.cur,data:sv,saved:now}})} /* e, a cada ~15 s, vai para o Supabase */
   if(S.cur&&S.tab==='treino')updLive();else if(S.cur&&S.tab==='home')updHome()},1000);
@@ -556,21 +859,131 @@ function fastUpd(k){const n=performance.now(),a=rateT[k]||(rateT[k]=[]);a.push(n
     if(!advance())return;
     const L=live(),w=S.wo,r=route();if(!r)return;const fc=factor(grade(r,Math.min(1,w.dist/r.dist)));
     set('m-spd',L.spd.toFixed(1));set('m-cad',Math.round(L.cad));set('m-hr',L.hr?Math.round(L.hr):'--');
-    set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));set('m-vspd',(L.spd*fc).toFixed(1))})}
+    set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));set('m-vspd',(L.spd*fc).toFixed(1));updMode()})}
 
 /* ---------- Perfil & Histórico ---------- */
 function perfil(){const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0),t=h.reduce((a,x)=>a+x.time,0),bmi=p.weight/Math.pow(p.height/100,2);
-  const bests=S.routes.map(r=>({r,t:userBest(r)})).filter(x=>x.t);
+  const bm=bestMode(),bests=S.routes.map(r=>({r,t:userBest(r,undefined,bm)})).filter(x=>x.t);
   const stat=(l,v)=>`<div class="rounded-xl bg-ink border border-line p-3"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-3xl font-bold text-neon">${v}</div></div>`;
-  return `<div class="space-y-4"><section class="rounded-2xl bg-panel border border-line p-5"><div class="flex items-center gap-4 flex-wrap">${avatar(p,72)}
-   <div class="flex-1 min-w-[160px]"><div class="font-display text-4xl font-bold">${esc(p.name)}</div><div class="text-sm text-zinc-400">${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)}</div></div>
+  return `<div class="space-y-4"><section class="rounded-2xl bg-panel border border-line p-5"><div class="flex items-center gap-4 flex-wrap">${avatarXP(p,72)}
+   <div class="flex-1 min-w-[160px]"><div class="font-display text-4xl font-bold">${esc(p.name)}</div><div class="text-sm text-zinc-400">${p.sex==='f'?'Mulher':p.sex==='m'?'Homem':'Sexo não definido'} · ${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)}</div><div class="text-sm text-emerald-300 mt-0.5">Nível ${lvInfo(G(p).xp).l} · ${lvInfo(G(p).xp).cur.toLocaleString('pt-BR')}/${lvInfo(G(p).xp).need.toLocaleString('pt-BR')} XP</div></div>
+   <button onclick="editProfileModal()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>Editar perfil</button>
    <button onclick="photoModal()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="camera" class="w-4 h-4"></i>Alterar foto</button>
    <button onclick="deleteProfile()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember flex items-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i>Excluir perfil</button></div>
-   <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length)}${stat('Rotas com recorde',bests.length)}</div></section>
-  <div class="grid md:grid-cols-2 gap-4"><section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-0.5">Melhores tempos</h3><p class="text-xs text-zinc-500 mb-2">Modo de inclinação: ${INT[S.inten].n} (recordes são separados por modo)</p>
-   ${bests.length?bests.map(x=>`<button onclick="routeDetail('${x.r.id}')" class="w-full flex justify-between py-2 border-b border-line last:border-0 text-left hover:text-neon"><span class="truncate">${esc(x.r.name)}</span><span class="tabular-nums text-neon">${fmt(x.t)}</span></button>`).join(''):'<p class="text-sm text-zinc-400">Conclua uma rota inteira para registrar seu primeiro recorde.</p>'}</section>
+   <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length)}${stat('Rotas com recorde',bests.length)}${stat('Nível',lvInfo(G(p).xp).l)}${stat('Moedas',G(p).coins.toLocaleString('pt-BR'))}</div></section>${bmiCard(p)}
+  <div class="grid md:grid-cols-2 gap-4"><section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-0.5">Melhores tempos</h3><div class="flex items-center gap-2 mb-2"><label for="bestMode" class="text-xs text-zinc-500 shrink-0">Modo de inclinação</label><select id="bestMode" onchange="setBestFilter(this.value)" aria-label="Filtrar melhores tempos por modo de inclinação" class="${IN} !w-auto !py-1 flex-1 sm:flex-none">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${bm===k?'selected':''}>${v.n}</option>`).join('')}<option value="all" ${bm==='all'?'selected':''}>Todos os modos</option></select></div>
+   ${bests.length?bests.map(x=>`<button onclick="routeDetail('${x.r.id}')" class="w-full flex justify-between py-2 border-b border-line last:border-0 text-left hover:text-neon"><span class="truncate">${esc(x.r.name)}</span><span class="tabular-nums text-neon">${fmt(x.t)}</span></button>`).join(''):`<p class="text-sm text-zinc-400">${bm==='all'?'Conclua uma rota inteira para registrar seu primeiro recorde.':'Nenhum recorde neste modo ainda. Conclua uma rota inteira com a inclinação '+INT[bm].n+'.'}</p>`}</section>
   <section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2">Histórico de treinos</h3>
-   ${h.length?`<ul class="max-h-[420px] overflow-y-auto">${h.map(x=>`<li class="py-2 border-b border-line last:border-0"><div class="flex justify-between gap-2"><span class="truncate font-medium">${esc(x.routeName)}</span><span class="text-xs ${x.done?'text-neon':'text-zinc-500'}">${x.done?'Concluída':'Parcial'}</span></div><div class="text-xs text-zinc-400">${new Date(x.date).toLocaleDateString('pt-BR')} · ${x.dist.toFixed(2)} km · ${fmt(x.time)} · ${x.avgSpd.toFixed(1)} km/h${x.avgHr?' · '+x.avgHr+' bpm':''} · Inclinação ${INT[x.inten||'off'].n}</div></li>`).join('')}</ul>`:'<p class="text-sm text-zinc-400">Seus treinos aparecerão aqui depois da primeira pedalada.</p>'}</section></div></div>`}
+   ${h.length?`<ul class="max-h-[420px] overflow-y-auto">${h.map(x=>`<li class="py-2 border-b border-line last:border-0"><div class="flex justify-between gap-2"><span class="truncate font-medium">${esc(x.routeName)}</span><span class="text-xs ${x.done?'text-neon':'text-zinc-500'}">${x.mode==='horda'?(x.done?'Escapou da horda':'Alcançado pela horda'):x.done?'Concluída':'Parcial'}</span></div><div class="text-xs text-zinc-400">${new Date(x.date).toLocaleDateString('pt-BR')} · ${x.dist.toFixed(2)} km · ${fmt(x.time)} · ${x.avgSpd.toFixed(1)} km/h${x.avgHr?' · '+x.avgHr+' bpm':''} · Inclinação ${INT[x.inten||'off'].n}${(x.coins||x.pts)?' · <b class="text-neon">'+(x.coins||x.pts).toLocaleString('pt-BR')+' moedas</b>':''}${x.xp?' · '+x.xp.toLocaleString('pt-BR')+' XP':''}${x.evTot?' · eventos '+(x.evOk||0)+'/'+x.evTot:''}</div></li>`).join('')}</ul>`:'<p class="text-sm text-zinc-400">Seus treinos aparecerão aqui depois da primeira pedalada.</p>'}</section></div></div>`}
+
+/* ---------- Ilustrações vetoriais: bike, rodas, quadro, capacete e sapatilha (a cor vem da raridade da peça) ---------- */
+const INK='#0b1a2a',SKIN='#e8b894',KIT='#1c4a74';
+let _svgN=0;
+const pct=v=>(v*100).toFixed((v*100)%1?1:0).replace('.',',')+'%';
+const ln=(a,b,w,c,o='')=>`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${INK}" stroke-width="${(w+3).toFixed(1)}" stroke-linecap="round"/><line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${c}" stroke-width="${w.toFixed(1)}" stroke-linecap="round" ${o}/>`;
+function wheelG(cx,cy,r,st,c){const rim={spoke:2.4,aero:5,carbon:8,disc:3}[st]||2.4;
+  let o=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${INK}" stroke-width="${rim+3}"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${c}" stroke-width="${rim}"/>`;
+  if(st==='disc')o+=`<circle cx="${cx}" cy="${cy}" r="${r-1}" fill="${c}" fill-opacity=".3"/><circle cx="${cx}" cy="${cy}" r="${(r*.55).toFixed(1)}" fill="none" stroke="${c}" stroke-opacity=".55" stroke-width="1.6"/>`;
+  else{const n=st==='spoke'?18:st==='aero'?10:6;for(let i=0;i<n;i++){const a=i/n*Math.PI*2;o+=`<line x1="${cx}" y1="${cy}" x2="${(cx+Math.cos(a)*(r-rim/2)).toFixed(1)}" y2="${(cy+Math.sin(a)*(r-rim/2)).toFixed(1)}" stroke="${c}" stroke-opacity=".55" stroke-width="${st==='spoke'?.8:1.6}"/>`}}
+  return o+`<circle cx="${cx}" cy="${cy}" r="${Math.max(3,r*.07).toFixed(1)}" fill="${c}" stroke="${INK}" stroke-width="1.5"/>`}
+const FR={R:[90,160],F:[310,160],BB:[190,168],ST:[165,88],HT:[278,86],HB:[288,108]};
+function frameG(st,c){const {R,F,BB,ST,HT,HB}=FR,w={urban:8,alu:6.5,light:4.6,carbon:7,titan:5.6}[st]||6;
+  let o=ln(BB,R,w*.65,c)+ln(ST,R,w*.55,c)+ln(BB,ST,w,c)+ln(ST,HT,w*.9,c)+ln(BB,HB,w*(st==='carbon'?1.5:1.1),c)+ln(HT,HB,w*1.2,c)+ln(HB,F,w*.7,c);
+  if(st==='carbon')o+=`<line x1="${BB[0]+6}" y1="${BB[1]-8}" x2="${HB[0]-6}" y2="${HB[1]+8}" stroke="#fff" stroke-opacity=".28" stroke-width="2.2" stroke-linecap="round"/>`;
+  if(st==='titan')o+=[BB,ST,HT,HB].map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="${w*.8}" fill="#fff4cf" stroke="${INK}" stroke-width="1.5"/>`).join('');
+  if(st==='alu')o+=[BB,ST,HT].map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="${w*.55}" fill="${c}" stroke="${INK}" stroke-width="1.2"/>`).join('');
+  if(st==='urban')o+=`<line x1="${R[0]}" y1="${R[1]-4}" x2="${ST[0]-8}" y2="${ST[1]-6}" stroke="${c}" stroke-opacity=".5" stroke-width="2"/>`;
+  return o}
+function helmetG(st,c){const dome='M226 40 Q226 24 238 24 Q250 24 250 40 Z',tail={aero:'M250 40 Q250 24 238 24 Q230 24 224 32 L208 44 Q232 40 250 40 Z',crono:'M250 40 Q250 24 238 24 Q228 24 220 34 L198 48 Q232 42 250 40 Z'}[st];
+  let o=`<path d="${tail||dome}" fill="${c}" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`;
+  if(st==='vent')o+=[231,236,241].map(x=>`<line x1="${x}" y1="27" x2="${x+3}" y2="36" stroke="${INK}" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>`).join('');
+  if(st==='crono')o+=`<path d="M247 31 q6 2 6 9" fill="none" stroke="#dff3ff" stroke-opacity=".8" stroke-width="2" stroke-linecap="round"/>`;
+  return o+`<line x1="241" y1="40" x2="245" y2="50" stroke="${INK}" stroke-width="1.6"/>`}
+function shoeG(st,c){let o=`<path d="M190 187 L210 187 Q226 189 228 197 L190 197 Z" fill="${c}" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/><rect x="188" y="197" width="40" height="4" rx="2" fill="${INK}"/>`;
+  if(st==='strap')o+=`<line x1="198" y1="188" x2="198" y2="196" stroke="#fff" stroke-opacity=".7" stroke-width="2"/><line x1="206" y1="188" x2="206" y2="196" stroke="#fff" stroke-opacity=".7" stroke-width="2"/>`;
+  if(st==='race')o+=`<circle cx="203" cy="191" r="2.6" fill="#fff" fill-opacity=".85"/><path d="M212 189 Q222 190 225 196" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="1.6"/>`;
+  return o}
+/* Bike completa (com ciclista) montada a partir das peças equipadas; a raridade média acende uma aura e as peças raras brilham */
+function bikeSvg(eq,o={}){const n=++_svgN,it=k=>ITEM[eq[k]]||ITEM[STARTER_EQ[k]],W=it('rodas'),Fr=it('quadros'),H=it('capacetes'),Sh=it('sapatilhas'),
+    tier=Math.round([W,Fr,H,Sh].reduce((a,i)=>a+i.r,0)/4),tc=RAR[tier].c,col=i=>RAR[i.r].c,gl=i=>i.r>=2?`style="filter:drop-shadow(0 0 ${2+i.r*2}px ${col(i)})"`:'';
+  const {R,F,BB,ST,HT}=FR,hip=[172,84],sh=[226,54],rider=o.rider!==false;
+  const spark=tier>=3?[[60,50],[350,60],[330,205],[40,190]].map((q,i)=>`<path d="M0 -9 L2.4 -2.4 9 0 2.4 2.4 0 9 -2.4 2.4 -9 0 -2.4 -2.4Z" transform="translate(${q[0]} ${q[1]})" fill="#ffe29a"><animate attributeName="opacity" values=".15;1;.15" dur="${1.6+i*.4}s" repeatCount="indefinite"/></path>`).join(''):'';
+  const defs=tier>0?`<defs><radialGradient id="ga${n}"><stop offset="0" stop-color="${tc}" stop-opacity=".38"/><stop offset="1" stop-color="${tc}" stop-opacity="0"/></radialGradient></defs><ellipse cx="200" cy="128" rx="196" ry="112" fill="url(#ga${n})"/>`:'';
+  const crank=`<circle cx="${BB[0]}" cy="${BB[1]}" r="16" fill="none" stroke="#5b7a99" stroke-width="3"/>`+ln(BB,[203,196],4,'#8aa6c2');
+  const cock=ln(ST,[160,70],4.5,'#cfe0f1')+`<path d="M146 66 q14 -6 34 -2 l-2 6 q-16 -2 -30 4z" fill="#dfe8f2" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`+ln(HT,[284,70],5,'#cfe0f1')+`<path d="M284 70 q22 -4 24 14 q1 12 -10 12" fill="none" stroke="${INK}" stroke-width="8" stroke-linecap="round"/><path d="M284 70 q22 -4 24 14 q1 12 -10 12" fill="none" stroke="#cfe0f1" stroke-width="5" stroke-linecap="round"/>`;
+  /* bike reduzida (BS) em torno do chão; o ciclista mantém o tamanho e os pontos de apoio (selim, guidão, pedal) seguem a bike */
+  const BS=.68,T=p=>[200+(p[0]-200)*BS,222+(p[1]-222)*BS],
+    ik=(a,b,l1,l2,sg)=>{const dx=b[0]-a[0],dy=b[1]-a[1],d=Math.hypot(dx,dy)||1,m=Math.min(d,l1+l2-.01),x=(l1*l1-l2*l2+m*m)/(2*m),h=Math.sqrt(Math.max(0,l1*l1-x*x)),ux=dx/d,uy=dy/d;return [a[0]+ux*x-sg*uy*h,a[1]+uy*x+sg*ux*h]},
+    sd=T([167,62]),hp=[sd[0],sd[1]-10],shd=[hp[0]+54,hp[1]-30],hand=T([298,84]),elb=ik(shd,hand,45,36,1),
+    pd=T([203,196]),nf=[pd[0]+2,pd[1]-11],nk=ik(hp,nf,58,62.6,-1),ff=T([177,146]),fk=ik(hp,ff,38.6,27.5,-1),hd=[hp[0]-hip[0],hp[1]-hip[1]],fd=[nf[0]-205,nf[1]-186];
+  /* perna esquerda (lado oposto): desenhada ATRÁS do quadro e das rodas, para a bike parecer ficar entre as pernas */
+  const fl=rider?ln(T(BB),ff,4,'#46627d')+ln(hp,fk,12,'#15395c')+ln(fk,ff,9,'#15395c')+`<g transform="translate(${ff[0].toFixed(1)} ${ff[1].toFixed(1)}) scale(.8) translate(-205 -186)" opacity=".8">${shoeG(Sh.st,col(Sh))}</g>`:'';
+  const rd=rider?    ln(hp,shd,16,KIT)+ln(shd,elb,6,SKIN)+ln(elb,hand,6,SKIN)+
+    ln(hp,nk,13,KIT)+ln(nk,nf,10,KIT)+`<g transform="translate(${nf[0].toFixed(1)} ${nf[1].toFixed(1)}) scale(.8) translate(-205 -186)">${shoeG(Sh.st,col(Sh))}</g>`+
+    `<g transform="translate(${hd[0].toFixed(1)} ${hd[1].toFixed(1)})"><circle cx="238" cy="40" r="11" fill="${SKIN}" stroke="${INK}" stroke-width="1.6"/><g ${gl(H)}>${helmetG(H.st,col(H))}</g></g>`:'';
+  return `<svg viewBox="0 0 400 240" class="${o.cls||'w-full'}" role="img" aria-label="Bicicleta equipada">${defs}<ellipse cx="200" cy="224" rx="150" ry="9" fill="#000" fill-opacity=".45"/>
+   ${fl}<g transform="translate(200 222) scale(${BS}) translate(-200 -222)"><g ${gl(W)}>${wheelG(R[0],R[1],62,W.st,col(W))}${wheelG(F[0],F[1],62,W.st,col(W))}</g><g ${gl(Fr)}>${frameG(Fr.st,col(Fr))}</g>${crank}${cock}</g>${rd}${spark}</svg>`}
+/* arte de cada peça (mesmas primitivas, em enquadramentos diferentes) */
+function itemArt(it,cls='h-20'){const c=RAR[it.r].c,g=it.r>=2?`style="filter:drop-shadow(0 0 ${2+it.r*2}px ${c})"`:'';
+  const v={rodas:['0 0 100 100',wheelG(50,50,40,it.st,c)],quadros:['66 56 266 150',frameG(it.st,c)],
+    capacetes:['194 14 68 44',`<circle cx="238" cy="40" r="11" fill="${SKIN}" stroke="${INK}" stroke-width="1.6"/>${helmetG(it.st,c)}`],sapatilhas:['180 178 56 28',shoeG(it.st,c)]}[it.slot];
+  return `<svg viewBox="${v[0]}" class="${cls} mx-auto" role="img" aria-label="${esc(it.n)}"><g ${g}>${v[1]}</g></svg>`}
+/* zumbi e ghost (marcadores do mapa) */
+function zombieG(x,y,R=30){return `<g transform="translate(${x} ${y}) scale(${R/30})"><circle r="42" fill="#ff3b3b" fill-opacity=".22"/><circle r="30" fill="#79c36a" stroke="${INK}" stroke-width="4"/><path d="M-20 -22 L-8 -15" stroke="#3f7f36" stroke-width="3.5" stroke-linecap="round"/><circle cx="-10" cy="-5" r="7.5" fill="#fff"/><circle cx="11" cy="-4" r="6" fill="#fff"/><circle cx="-9" cy="-4" r="2.8" fill="${INK}"/><circle cx="12" cy="-3" r="2.4" fill="${INK}"/><path d="M-14 13 L-7 8 L0 14 L7 8 L14 13" fill="none" stroke="${INK}" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></g>`}
+function ghostG(x,y,gh){const ini=esc(((gh&&gh.name)||'G')[0].toUpperCase());
+  return `<g transform="translate(${x} ${y})" opacity=".82"><circle r="42" fill="#9fd9ff" fill-opacity=".16"/><circle r="27" fill="#0d2a44" stroke="#9fd9ff" stroke-width="5" stroke-dasharray="9 6"/><text dy=".35em" text-anchor="middle" font-size="28" font-weight="700" fill="#cfe9ff">${ini}</text><text y="-36" text-anchor="middle" font-size="19" font-weight="700" fill="#9fd9ff">Ghost</text></g>`}
+
+/* ---------- Anel de XP em volta da foto ---------- */
+function avatarXP(p,size=56){const I=lvInfo(G(p).xp),pad=6,D=size+pad*2,r=D/2-2.5,C=2*Math.PI*r;
+  return `<div class="relative shrink-0" style="width:${D}px;height:${D}px" title="Nível ${I.l} · ${I.cur.toLocaleString('pt-BR')}/${I.need.toLocaleString('pt-BR')} XP"><svg class="absolute inset-0 -rotate-90" viewBox="0 0 ${D} ${D}" width="${D}" height="${D}" aria-hidden="true"><circle cx="${D/2}" cy="${D/2}" r="${r}" fill="none" stroke="#17314a" stroke-width="3.5"/><circle cx="${D/2}" cy="${D/2}" r="${r}" fill="none" stroke="#34d399" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C*(1-I.pct)).toFixed(1)}" style="filter:drop-shadow(0 0 4px rgba(52,211,153,.9));transition:stroke-dashoffset .8s ease"/></svg>
+   <div class="absolute" style="inset:${pad}px">${avatar(p,size)}</div><span class="absolute -bottom-0.5 -right-0.5 bg-emerald-400 text-ink font-display text-[11px] font-bold rounded-full px-1.5 leading-4 border border-ink">${I.l}</span></div>`}
+
+/* ---------- Loja de Componentes ---------- */
+const bonusTxt=b=>{const t=[];if(b.flat)t.push('+'+pct(b.flat)+' em trechos planos');if(b.climb)t.push('+'+pct(b.climb)+' nas subidas');if(b.down)t.push('+'+pct(b.down)+' nas descidas');if(b.all)t.push('+'+pct(b.all)+' em todo o percurso');return t.length?t.join(' · '):'Sem bônus (equipamento inicial)'};
+const rarBadge=r=>`<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border" style="color:${RAR[r].c};border-color:${RAR[r].c}77">${RAR[r].n}</span>`;
+const woBusy=()=>S.wo.dist>0||S.wo.running||S.wo.arming;
+function setShopCat(id){S.shopCat=id;render()}
+function itemCard(it,g,I){const R=RAR[it.r],own=g.inv.includes(it.id),eq=g.eq[it.slot]===it.id,lock=I.l<it.lv,can=g.coins>=it.price;let btn;
+  if(eq)btn=`<div class="py-2 text-center text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1"><i data-lucide="check" class="w-4 h-4"></i>Equipado</div>`;
+  else if(own)btn=`<button onclick="equipItem('${it.id}')" class="w-full py-2 rounded-lg border border-neon text-neon text-sm font-semibold">Equipar</button>`;
+  else if(lock)btn=`<div class="py-2 text-center text-xs text-zinc-500 flex items-center justify-center gap-1"><i data-lucide="lock" class="w-3.5 h-3.5"></i>Requer nível ${it.lv}</div>`;
+  else btn=`<button onclick="buyItem('${it.id}')" ${can?'':'disabled'} class="w-full py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 ${can?'bg-brand text-white':'bg-line text-zinc-500'}"><i data-lucide="cog" class="w-4 h-4"></i>${it.price.toLocaleString('pt-BR')}</button>`;
+  return `<div class="rounded-2xl bg-panel border p-3 flex flex-col gap-2 ${lock&&!own?'opacity-60':''}" style="border-color:${eq?R.c:'#17314a'}"><div class="rounded-xl bg-ink border border-line py-2" style="${it.r>=2?`box-shadow:inset 0 0 22px ${R.c}33`:''}">${itemArt(it)}</div>
+   <div class="flex items-start justify-between gap-2"><div class="font-semibold text-sm leading-tight">${esc(it.n)}</div>${rarBadge(it.r)}</div><div class="text-xs text-zinc-400 flex-1">${bonusTxt(it.b)}</div>${btn}</div>`}
+function loja(){const p=profile(),g=G(p),I=lvInfo(g.xp),cat=SLOTS.some(x=>x[0]===S.shopCat)?S.shopCat:'rodas';
+  const nxt=Object.entries(FEAT).filter(([,v])=>v>I.l).sort((a,b)=>a[1]-b[1])[0];
+  return `<div class="space-y-4"><section class="rounded-2xl bg-panel border border-line p-4 flex flex-wrap items-center gap-4">${avatarXP(p,48)}
+   <div class="flex-1 min-w-[170px]"><div class="font-display text-3xl font-bold leading-none">Loja de Componentes</div><div class="text-sm text-zinc-400 mt-1">Nível ${I.l} · ${I.cur.toLocaleString('pt-BR')}/${I.need.toLocaleString('pt-BR')} XP</div><div class="h-1.5 rounded-full bg-line mt-1.5 overflow-hidden max-w-xs"><div class="h-full bg-emerald-400" style="width:${(I.pct*100).toFixed(1)}%"></div></div>${nxt?`<div class="text-[11px] text-zinc-500 mt-1">Nível ${nxt[1]}: libera ${nxt[0]==='horda'?'o modo Fuga da Horda':'o ghost do líder'}</div>`:''}</div>
+   <div class="flex items-center gap-2 rounded-xl bg-ink border border-line px-4 py-2"><i data-lucide="cog" class="w-6 h-6 text-ember"></i><div><div class="text-[11px] text-zinc-400 leading-none">Moedas de Engrenagem</div><div class="font-display text-3xl font-bold text-ember leading-tight tabular-nums">${g.coins.toLocaleString('pt-BR')}</div></div></div></section>
+  <div class="flex gap-2 overflow-x-auto pb-1">${SLOTS.map(([id,l,ic])=>`<button onclick="setShopCat('${id}')" class="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-semibold whitespace-nowrap ${cat===id?'border-neon text-neon bg-neon/10':'border-line text-zinc-400'}"><i data-lucide="${ic}" class="w-4 h-4"></i>${l}</button>`).join('')}</div>
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">${ITEMS.filter(i=>i.slot===cat).map(i=>itemCard(i,g,I)).join('')}</div></div>`}
+function buyItem(id){const it=ITEM[id],p=profile(),g=G(p);if(!it||g.inv.includes(id))return;
+  if(lvInfo(g.xp).l<it.lv){toast('Requer nível '+it.lv);return}
+  if(g.coins<it.price){toast('Moedas insuficientes');return}
+  g.coins-=it.price;g.inv.push(id);const busy=woBusy();if(!busy)g.eq[it.slot]=id;
+  saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});toast(it.n+(busy?' comprado (equipe depois do treino)':' comprado e equipado'));render()}
+function equipItem(id){const it=ITEM[id],p=profile(),g=G(p);if(!it||!g.inv.includes(id))return;
+  if(woBusy()){toast('Finalize o treino para trocar de equipamento');return}
+  g.eq[it.slot]=id;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});render()}
+const unlocksAt=l=>[...ITEMS.filter(i=>i.lv===l&&i.price>0).map(i=>i.n),...Object.entries(FEAT).filter(([,v])=>v===l).map(([k])=>k==='horda'?'Modo Fuga da Horda':'Ghost do líder do ranking')];
+function levelModal(l){const u=unlocksAt(l);
+  openModal(`<div class="text-center py-2"><div class="mx-auto w-24 h-24 rounded-full grid place-items-center border-4 border-emerald-400 font-display text-5xl font-extrabold text-emerald-300" style="box-shadow:0 0 28px rgba(52,211,153,.6)">${l}</div><h2 class="font-display text-4xl font-bold mt-3">Subiu de nível!</h2><p class="text-zinc-300 text-sm mt-1">Você chegou ao nível ${l}.</p>
+   ${u.length?`<div class="text-left rounded-xl bg-ink border border-line p-3 my-4"><div class="text-xs text-zinc-400 mb-1">Liberado agora</div><ul class="text-sm space-y-1">${u.map(x=>`<li class="flex items-center gap-2"><i data-lucide="unlock" class="w-4 h-4 text-neon"></i>${esc(x)}</li>`).join('')}</ul></div>`:'<div class="my-4"></div>'}
+   <button onclick="closeModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Continuar</button></div>`,'max-w-sm')}
+
+/* ---------- Garagem Virtual ---------- */
+function garagem(){const p=profile(),g=G(p),eq=g.eq,b=gearBonus(p),I=lvInfo(g.xp);
+  const bn=[['Planos',b.flat],['Subidas',b.climb],['Descidas',b.down],['Geral',b.all]].filter(x=>x[1]);
+  const mini=(it)=>{const own=g.inv.includes(it.id),eqd=eq[it.slot]===it.id;
+    return `<button onclick="equipItem('${it.id}')" class="rounded-xl bg-ink border p-2 text-left" style="border-color:${eqd?RAR[it.r].c:'#17314a'}">${itemArt(it,'h-16')}<div class="text-xs font-semibold mt-1 leading-tight">${esc(it.n)}</div><div class="flex items-center justify-between mt-1">${rarBadge(it.r)}<span class="text-[10px] ${eqd?'text-emerald-300':'text-zinc-500'}">${eqd?'Equipado':'Equipar'}</span></div></button>`};
+  const bikes=g.inv.map(id=>ITEM[id]).filter(i=>i&&i.slot==='quadros').sort((a,b2)=>a.r-b2.r);
+  const accs=sl=>g.inv.map(id=>ITEM[id]).filter(i=>i&&i.slot===sl).sort((a,b2)=>a.r-b2.r);
+  return `<div class="space-y-4"><section class="rounded-2xl bg-panel border border-line p-4"><div class="flex flex-wrap items-center gap-2 mb-2"><h2 class="font-display text-3xl font-bold flex-1">Garagem Virtual</h2><span class="text-sm text-zinc-400">${g.inv.length}/${ITEMS.length} itens</span><button onclick="setTab('loja')" class="text-sm px-3 py-2 rounded-lg bg-brand text-white font-semibold flex items-center gap-2"><i data-lucide="shopping-bag" class="w-4 h-4"></i>Loja</button></div>
+   <div class="grid md:grid-cols-5 gap-4 items-center"><div class="md:col-span-3 rounded-xl bg-ink border border-line p-2">${bikeSvg(eq)}</div>
+    <div class="md:col-span-2 space-y-2"><div class="text-xs text-zinc-400">Equipado agora</div>${SLOTS.map(([sl,l])=>{const it=ITEM[eq[sl]];return `<div class="flex items-center gap-2 text-sm"><span class="w-20 text-zinc-500 text-xs">${l}</span><span class="flex-1 truncate font-medium">${esc(it.n)}</span>${rarBadge(it.r)}</div>`}).join('')}
+     <div class="rounded-xl bg-ink border border-line p-3 mt-2"><div class="text-xs text-zinc-400 mb-1">Bônus na velocidade virtual</div>${bn.length?bn.map(x=>`<div class="flex justify-between text-sm"><span>${x[0]}</span><b class="text-neon">+${pct(x[1])}</b></div>`).join(''):'<div class="text-sm text-zinc-500">Nenhum bônus ainda. Compre peças na Loja.</div>'}</div>${woBusy()?'<div class="text-[11px] text-ember">Treino em andamento: a troca de equipamento fica disponível depois.</div>':''}</div></div></section>
+  <section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2">Bicicletas desbloqueadas</h3><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">${bikes.map(it=>{const eqd=eq.quadros===it.id;return `<button onclick="equipItem('${it.id}')" class="rounded-xl bg-ink border p-2 text-left" style="border-color:${eqd?RAR[it.r].c:'#17314a'}">${bikeSvg({...eq,quadros:it.id},{cls:'w-full'})}<div class="flex items-center justify-between gap-2 mt-1"><span class="text-sm font-semibold truncate">${esc(it.n)}</span>${rarBadge(it.r)}</div><div class="text-[11px] ${eqd?'text-emerald-300':'text-zinc-500'}">${eqd?'Equipada':'Toque para equipar'} · ${bonusTxt(it.b)}</div></button>`}).join('')}</div></section>
+  ${[['rodas','Rodas'],['capacetes','Capacetes'],['sapatilhas','Sapatilhas']].map(([sl,l])=>`<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2">${l}</h3><div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">${accs(sl).map(mini).join('')}</div></section>`).join('')}</div>`}
 
 /* ---------- Biblioteca de Rotas ---------- */
 function rotas(){
@@ -638,15 +1051,19 @@ $('#gpxFile').addEventListener('change',async ev=>{const f=ev.target.files[0];ev
 function restoreWo(remote){let sv=load('cad_wo',null);
   if(remote&&(!sv||(remote.saved||0)>(sv.saved||0)))sv=remote; /* usa o mais recente entre este aparelho e o Supabase */
   if(sv&&sv.profile===S.cur&&profile()&&sv.dist>0&&S.routes.some(r=>r.id===sv.route)&&Date.now()-sv.saved<43200000){
-    sv={...sv};delete sv.profile;delete sv.saved;Object.assign(S.wo,sv,{running:false,last:Date.now()});S.tab='treino';
+    sv={...sv};delete sv.profile;delete sv.saved;if(sv.coins==null&&sv.pts!=null){sv.coins=sv.pts;sv.xp=Math.round(sv.pts*1.5)}delete sv.pts;if(!Array.isArray(sv.trace))sv.trace=[];
+    const hadGh=!!(sv.gh&&sv.gh.re);if(hadGh)sv.gh=null;
+    Object.assign(S.wo,sv,{running:false,last:Date.now()});if(hadGh){const rr=S.routes.find(x=>x.id===S.wo.route);S.wo.gh=rr?ghostFor(rr):null}S.wo.evCur=null;S.wo.evs.forEach(x=>{if(x.st==='on')x.st='lost'});S.tab='treino';
     setTimeout(()=>toast('Treino anterior restaurado. Reconecte os sensores e toque em Retomar'),400)}}
+/* Ao abrir o app sempre vai para a seleção de perfil; o último perfil só é usado para carregar os dados */
+let bootRemote;
 async function boot(){
-  if(!sb){applyInten();restoreWo();render();return}
-  if(S.cur&&profile())render();else $('#app').innerHTML='<main class="min-h-screen grid place-items-center text-zinc-400">Carregando dados…</main>';
-  let remote=null;
+  if(!sb){bootRemote=null;applyInten();render();return}
+  $('#app').innerHTML='<main class="min-h-screen grid place-items-center text-zinc-400">Carregando dados…</main>';
+  S.cur=S.lastCur;let remote=null;
   try{await flush();if(outbox.length)throw new Error('pendente');remote=await pull();setSync('ok')}
   catch(e){console.error(e);setSync('err');toast('Sem conexão com o Supabase: usando os dados salvos neste aparelho')}
-  applyInten();restoreWo(remote);render()}
+  S.cur=null;bootRemote=remote;applyInten();render()}
 boot();
 </script>
 </body>
