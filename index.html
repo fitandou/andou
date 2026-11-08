@@ -105,7 +105,7 @@ const S={
   sim:{on:!navigator.bluetooth,cad:80,hr:135,spd:28},
   bt:{hr:null,csc:null,ftms:null},
   sensor:{spd:0,cad:0,hr:0,pw:0,ts:0,th:0,rate:{}},
-  wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0},
+  wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0,armed:false,auto:false},
   edit:null
 };
 if(!load('cad_routes',null))store('cad_routes',S.routes);
@@ -339,7 +339,7 @@ function trackSvg(r,p=null,mini=false){const T=getTrack(r);let w=0,h=0;T.forEach
   const loop=Math.hypot(T[0][0]-T[T.length-1][0],T[0][1]-T[T.length-1][1])<45;
   let done='',rider='';
   if(p!=null){const {i,pos}=trackPos(T,p);
-    if(p>0)done=`<path d="${d([...T.slice(0,i+1),pos])}" fill="none" stroke="#6ac3ff" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    if(p>0)done=`<path d="${d([...T.slice(0,i+1),pos])}" fill="none" stroke="#ffffff" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
     const pp=profile(),x=pos[0],y=pos[1],ph=pp&&pp.photo;
     rider=`<circle cx="${x}" cy="${y}" r="44" fill="#ffa13d" fill-opacity=".25"/>`+(ph
       ?`<defs><clipPath id="rc"><circle cx="${x}" cy="${y}" r="32"/></clipPath></defs><circle cx="${x}" cy="${y}" r="32" fill="#080f17"/><image href="${esc(ph)}" x="${x-32}" y="${y-32}" width="64" height="64" preserveAspectRatio="xMidYMid slice" clip-path="url(#rc)"/><circle cx="${x}" cy="${y}" r="32" fill="none" stroke="#ffa13d" stroke-width="5"/><circle cx="${x}" cy="${y}" r="36" fill="none" stroke="#fff" stroke-width="2"/>`
@@ -599,7 +599,8 @@ function ensureEvs(){const w=S.wo,r=route();if(r&&!w.evs.length)w.evs=planEvents
 function evShow(h){const el=$('#evt');if(!el)return;el.innerHTML=h||'';el.style.display=h?'block':'none'}
 const evBox=(t,body)=>`<div class="bodyin mx-auto rounded-2xl border border-neon/40 bg-panel/90 backdrop-blur-sm p-3 text-center shadow-[0_8px_30px_rgba(0,0,0,.6)]"><div class="text-[10px] uppercase tracking-widest text-neon">${t}</div>${body}</div>`;
 /* soma moedas e XP do treino (no modo Horda valem ×ECO.hordaMul); o saldo do perfil só é creditado ao encerrar (finish) */
-function addGain(c,x){const w=S.wo,m=w.mode==='horda'?ECO.hordaMul:1;c=Math.round(c*m);x=Math.round(x*m);if(c<=0&&x<=0)return;w.coins+=c;w.xp+=x;
+let sfxHold=false;   /* ao finalizar, o som de fim substitui os sons de moeda */
+function addGain(c,x){const w=S.wo,m=w.mode==='horda'?ECO.hordaMul:1;c=Math.round(c*m);x=Math.round(x*m);if(c<=0&&x<=0)return;w.coins+=c;w.xp+=x;if(c>0&&!sfxHold)sfx('coin');
   set('m-pts',w.coins.toLocaleString('pt-BR'));const f=$('#m-ptsfl');if(f){f.textContent='+'+c+(x?' · +'+x+' XP':'');f.style.opacity=1;clearTimeout(f._t);f._t=setTimeout(()=>f.style.opacity=0,1400)}}
 /* ganho de altimetria (m) do km k da rota, a partir do perfil de elevação */
 function gainKm(r,k){const e=r.elev,n=e.length-1;if(n<1)return 0;const i0=Math.round((k-1)/r.dist*n),i1=Math.min(n,Math.round(k/r.dist*n));let g=0;for(let i=i0+1;i<=i1;i++)if(e[i]>e[i-1])g+=e[i]-e[i-1];return g}
@@ -615,7 +616,7 @@ function evTick(){const w=S.wo,r=route();if(!r||!w.running||w.arming)return;
     const nx=w.evs.find(x=>x.st==='todo');
     if(!nx||w.secs<300||w.dist/r.dist<nx.f||L.spd<10)return;
     const def=EVENTS.find(x=>x.id===nx.ev),h=w.spdH.slice(-5),base=h.reduce((a,b)=>a+b,0)/h.length;
-    nx.st='on';w.evCur={id:nx.ev,idx:w.evs.indexOf(nx),k:0,base,s:[],c:[]};
+    nx.st='on';w.evCur={id:nx.ev,idx:w.evs.indexOf(nx),k:0,base,s:[],c:[]};sfx('event');
     evShow(evBox('Evento · '+def.t,`<div class="text-sm text-zinc-200 mt-1">${def.d}</div><div class="text-xs text-zinc-500 mt-1">Prepare-se</div>`));
     return}
   const e=w.evCur,def=EVENTS.find(x=>x.id===e.id);e.k++;
@@ -680,8 +681,40 @@ async function reconnect(kind,n=0){const dev=devs[kind];
 let wake=null;
 async function wakeOn(){try{if('wakeLock' in navigator&&!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>{wake=null})}}catch(e){}}
 function wakeOff(){try{wake&&wake.release()}catch(e){}wake=null}
+/* Tela sempre acesa enquanto houver treino iniciado (rodando, pausado ou em contagem): a trava só é liberada ao finalizar/zerar.
+   Se o sistema soltar a trava (ex.: aba em segundo plano), ela é pedida de novo a cada poucos segundos. */
+let wakeTry=0;function wakeKeep(){if(!woBusy()||wake||document.visibilityState!=='visible'||Date.now()-wakeTry<4000)return;wakeTry=Date.now();wakeOn()}
+/* Efeito sonoro simples (Web Audio): pausa = dois tons descendo, retomada = dois tons subindo. O áudio é liberado no primeiro toque (exigência do iOS/Chrome). */
+let AC=null;
+function audioCtx(){try{if(!AC){const C=window.AudioContext||window.webkitAudioContext;if(C)AC=new C()}if(AC&&AC.state==='suspended')AC.resume()}catch(e){}return AC}
+['touchend','click','keydown'].forEach(n=>document.addEventListener(n,()=>audioCtx(),{passive:true}));
+/* Efeitos sonoros (Web Audio, sem arquivos). Cada nota: [frequência Hz, atraso s, duração s, onda, frequência final p/ deslizar, volume]. */
+const SFX={
+  pause:[[660,0,.13],[440,.15,.13]],                                                     /* pausa: dois tons descendo */
+  resume:[[440,0,.13],[660,.15,.13]],                                                    /* retomada: dois tons subindo */
+  count:[[523,0,.2,'triangle',0,.3]],                                                    /* 3, 2, 1 */
+  go:[[659,0,.12,'triangle',0,.3],[880,.12,.12,'triangle',0,.3],[1319,.24,.5,'triangle',0,.32]],   /* largada */
+  coin:[[988,0,.07,'square',0,.1],[1319,.07,.38,'square',0,.1]],                         /* moeda: "cling" */
+  event:[[659,0,.14,'triangle',0,.28],[880,.17,.14,'triangle',0,.28],[659,.34,.14,'triangle',0,.28],[880,.51,.34,'triangle',0,.3]],   /* evento aleatório */
+  win:[[523,0,.14,'triangle',0,.28],[659,.13,.14,'triangle',0,.28],[784,.26,.14,'triangle',0,.28],[1047,.39,.7,'triangle',0,.3]],   /* treino concluído */
+  end:[[523,0,.22,'sine',0,.26],[392,.22,.55,'sine',0,.26]]};                            /* treino encerrado antes do fim */
+let _sfxT={};
+function sfx(name){const ac=audioCtx();if(!ac||ac.state!=='running')return;
+  const n=performance.now();if(name==='coin'){if(n-(_sfxT.coin||-1e9)<250)return;_sfxT.coin=n}   /* vários ganhos de uma vez = um só som */
+  try{const t=ac.currentTime+.01;(SFX[name]||[]).forEach(([f,d,l,ty,to,v])=>{const o=ac.createOscillator(),g=ac.createGain(),t0=t+d;o.type=ty||'sine';o.frequency.setValueAtTime(f,t0);if(to)o.frequency.exponentialRampToValueAtTime(to,t0+l);
+    g.gain.setValueAtTime(0,t0);g.gain.linearRampToValueAtTime(v||.2,t0+.012);g.gain.exponentialRampToValueAtTime(.001,t0+l);o.connect(g);g.connect(ac.destination);o.start(t0);o.stop(t0+l+.03)})}catch(e){}}
+const beep=sfx;   /* nome antigo (pausa/retomada) */
+/* rótulo do botão Iniciar/Pausar/Retomar (atualizado sem redesenhar a tela, para não atrapalhar sliders etc.) */
+function playLbl(){const w=S.wo,started=w.dist>0||w.running||w.auto;return `<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started&&!w.arming?'Retomar':'Iniciar'}`}
+function refreshPlay(){document.querySelectorAll('.js-play').forEach(b=>{b.innerHTML=playLbl()});if(window.lucide)lucide.createIcons()}
+/* Pausa automática: depois que o treino começa de fato (3-2-1 e velocidade > 0), velocidade 0 pausa na hora; voltar a pedalar retoma sozinho.
+   Só retoma pausas automáticas (uma pausa manual espera o botão). Na Fuga da Horda não há pausa automática: parar é justamente o perigo. */
+function autoCheck(){const w=S.wo;if(w.arming||cdBusy||w.mode==='horda'||!route())return;const spd=live().spd;
+  if(w.running){if(spd>0)w.armed=true;
+    else if(w.armed){w.running=false;w.auto=true;evShow('');beep('pause');refreshPlay();toast('Treino pausado: velocidade 0')}}
+  else if(w.auto&&spd>0){w.running=true;w.auto=false;w.last=Date.now();beep('resume');refreshPlay();toast('Treino retomado')}}
 document.addEventListener('visibilitychange',()=>{S.wo.last=Date.now();
-  if(document.visibilityState==='visible'){if(S.wo.running)wakeOn();['hr','csc','ftms'].forEach(k=>{if(devs[k]&&!S.bt[k])reconnect(k)})}});
+  if(document.visibilityState==='visible'){if(woBusy())wakeOn();['hr','csc','ftms'].forEach(k=>{if(devs[k]&&!S.bt[k])reconnect(k)})}});
 async function pair(kind,all){
   if(!navigator.bluetooth){toast('Procurando suporte a Bluetooth...');if(!(await waitBT())){toast(btMsg());return}}
   if(!window.isSecureContext){toast('Bluetooth exige HTTPS ou localhost. Abra por um endereço https://');return}
@@ -701,7 +734,7 @@ async function pair(kind,all){
     else if(e.name==='SecurityError')toast('Bluetooth bloqueado aqui (página dentro de iframe ou sem permissão). Abra a página direto no Chrome.');
     else toast('Falha ao conectar: '+(e.message||e.name))}}
 function toggleSim(){S.sim.on=!S.sim.on;render()}
-function setSim(k,v){S.sim[k]=+v;const el=$('#sv-'+k);if(el)el.textContent=v;updLive();updHome()}
+function setSim(k,v){S.sim[k]=+v;autoCheck();const el=$('#sv-'+k);if(el)el.textContent=v;updLive();updHome()}
 
 /* ---------- Ghost Run ----------
    O ghost corre o melhor tempo prévio (seu ou do líder do ranking) na mesma pista e no mesmo modo de inclinação. Usa o rastro
@@ -785,7 +818,7 @@ function sensOverlay(){return `<div class="shrink-0 flex flex-col items-end gap-
 function treino(){
   const r=route(),w=S.wo;
   if(!r)return `<div class="p-10 text-center text-zinc-400 border border-dashed border-line rounded-2xl">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</div>`;
-  w.route=r.id;const started=w.dist>0||w.running||!!w.arming;
+  w.route=r.id;const started=w.dist>0||w.running||!!w.arming||w.auto;
   const INs=IN.replace('py-2','py-1.5 lg:py-2');
   /* box de métrica (antes de iniciar) */
   const mt=(id,l,u,sp,c='',lg='lg:col-span-1')=>`<div class="${sp} ${lg} rounded-xl bg-panel border border-line px-3 py-1 lg:py-2 min-w-0"><div class="text-[10px] lg:text-[11px] text-zinc-400 truncate leading-tight">${l}</div><div class="font-display text-2xl lg:text-4xl font-bold leading-tight tabular-nums truncate ${c}"><span id="${id}">--</span> <span class="text-xs lg:text-sm text-zinc-500">${u}</span></div></div>`;
@@ -797,10 +830,10 @@ function treino(){
   const hzChip=w.mode==='horda'?`<div id="m-hzbox" class="flex items-center gap-1.5 w-fit font-display text-base font-bold tabular-nums text-zinc-300"><i data-lucide="skull" class="w-4 h-4 shrink-0"></i><span id="m-hz">--</span></div><div id="m-hzs" class="text-[10px] text-zinc-500 leading-none -mt-1 whitespace-nowrap"></div>`:'';
   const ghChip=w.gh&&w.mode!=='horda'?`<div class="flex items-center gap-1 text-[11px] font-semibold shrink-0 text-zinc-300" title="Diferença para o ghost (${esc(w.gh.name)})"><i data-lucide="ghost" class="w-3.5 h-3.5"></i><span id="m-gh">--</span></div>`:'';
   const ghOK=lvInfo(G().xp).l>=FEAT.ghostLider;
-  const playBtn=`<i data-lucide="${w.running?'pause':'play'}" class="w-5 h-5"></i>${w.running?'Pausar':started&&!w.arming?'Retomar':'Iniciar'}`;
-  const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito${r.track?'':' <span class="text-xs font-sans font-normal text-zinc-500">(traçado simulado)</span>'}</span><span class="flex items-center gap-2 shrink-0"><span id="m-ptsfl" class="text-[11px] text-ember tabular-nums opacity-0 transition-opacity duration-300"></span><span class="flex items-center gap-1"><i data-lucide="cog" class="w-3.5 h-3.5 text-ember"></i><span id="m-pts" class="font-display text-sm lg:text-base font-bold text-neon tabular-nums">${(S.wo.coins||0).toLocaleString('pt-BR')}</span></span><span id="m-prog" class="text-right"></span></span></div>`;
+  const playBtn=playLbl();
+  const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito</span><span class="flex items-center gap-2 shrink-0"><span id="m-ptsfl" class="text-[11px] text-ember tabular-nums opacity-0 transition-opacity duration-300"></span><span class="flex items-center gap-1"><i data-lucide="cog" class="w-3.5 h-3.5 text-ember"></i><span id="m-pts" class="font-display text-sm lg:text-base font-bold text-neon tabular-nums">${(S.wo.coins||0).toLocaleString('pt-BR')}</span></span><span id="m-prog" class="text-right"></span></span></div>`;
   /* o mapa fica num wrapper relativo: o SVG é redesenhado a cada segundo, os cartões por cima não */
-  const mapArea=(left='')=>`<div class="flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div id="m-map" class="absolute inset-0"></div></div></div><div class="shrink-0 flex items-end gap-3"><div class="relative flex-1 min-w-0 h-10 lg:h-12"><span class="absolute left-0 top-0 z-10 text-[9px] leading-none text-zinc-400 pointer-events-none">Altimetria</span><div id="m-elev" class="h-full [&>svg]:h-full [&>svg]:w-full"></div></div>${sensOverlay()}</div></div>`;
+  const mapArea=(left='')=>`<div class="flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div id="m-map" class="absolute inset-0"></div></div></div><div class="shrink-0 flex items-end gap-3"><div class="relative flex-1 min-w-0 h-10 lg:h-12"><span class="absolute left-0 top-0 z-10 text-[9px] leading-none text-zinc-400 pointer-events-none">Altimetria</span><div id="m-elev" class="h-full [&>svg]:h-full [&>svg]:w-full"></div></div></div></div>`;
   const circuit=started
    /* em treino: o Circuito é o box principal e carrega as métricas */
    ?`<section id="circ" class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 px-2 py-2.5 lg:p-4 flex flex-col flex-1 min-h-[260px] lg:min-h-0">${mapHead}
@@ -826,10 +859,10 @@ function treino(){
     <select onchange="setInten(this.value)" ${started?'disabled':''} aria-label="Intensidade da inclinação" title="Quanto a inclinação da rota reduz (subida) ou ajuda (descida) o seu avanço" class="${INs} w-auto disabled:opacity-50 ${started?'hidden lg:block':'flex-1 lg:flex-none'}">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${S.inten===k?'selected':''}>Inclinação: ${v.n}</option>`).join('')}</select>
     ${started||w.mode==='horda'?'':`<select onchange="setGhost(this.value)" aria-label="Ghost" title="Corra contra o seu melhor tempo ou contra o líder do ranking desta pista (mesmo modo de inclinação)" class="${INs} w-auto flex-1 lg:flex-none">${[['me','Ghost: Meu recorde'],['leader','Ghost: Líder'+(ghOK?'':' (Nv '+FEAT.ghostLider+')')],['off','Ghost: Desligado']].map(([k,l])=>`<option value="${k}" ${S.ghost===k?'selected':''} ${k==='leader'&&!ghOK?'disabled':''}>${l}</option>`).join('')}</select>`}
     ${S.sim.on?`<select onchange="S.wo.mult=+this.value" class="${INs} w-auto" title="Acelera o tempo da simulação">${[1,10,30,60].map(m=>`<option value="${m}" ${w.mult===m?'selected':''}>${m}x</option>`).join('')}</select>`:''}
-    <button onclick="toggleWo()" class="hidden lg:flex px-5 py-2 rounded-lg bg-brand text-white font-semibold items-center gap-2">${playBtn}</button>
+    <button onclick="toggleWo()" class="js-play hidden lg:flex px-5 py-2 rounded-lg bg-brand text-white font-semibold items-center gap-2">${playBtn}</button>
     ${started?`<button onclick="finish(false)" class="hidden lg:flex px-4 py-2 rounded-lg border border-ember text-ember font-semibold items-center gap-2"><i data-lucide="flag" class="w-4 h-4"></i>Finalizar</button>`:''}</section>
    <div class="lg:hidden shrink-0 flex gap-2">
-    <button onclick="toggleWo()" class="flex-1 py-2.5 rounded-xl bg-brand text-white font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80 shadow-[0_6px_24px_rgba(10,120,210,.45)]">${playBtn}</button>
+    <button onclick="toggleWo()" class="js-play flex-1 py-2.5 rounded-xl bg-brand text-white font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80 shadow-[0_6px_24px_rgba(10,120,210,.45)]">${playBtn}</button>
     ${started?`<button onclick="finish(false)" class="px-5 py-2.5 rounded-xl border border-ember text-ember font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80"><i data-lucide="flag" class="w-5 h-5"></i>Fim</button>`:''}</div>
    <div class="flex-1 lg:min-h-0 flex flex-col gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
     <div class="tr-cols flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 ${wide?'lg:col-span-4':'lg:col-span-3'}">
@@ -846,7 +879,7 @@ function startCountdown(){if(cdBusy)return;cdBusy=true;cdCancel=false;const w=S.
   const ov=document.createElement('div');ov.style.cssText='position:fixed;inset:0;z-index:9998;background:#05090f;opacity:0;touch-action:none';
   const num=document.createElement('div');num.className='font-display';num.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;pointer-events:none;font-weight:800;font-size:10rem;line-height:1;color:#fff;text-shadow:0 4px 28px rgba(0,0,0,.65),0 0 40px rgba(106,195,255,.45)';
   document.body.append(ov,num);
-  const show=n=>{num.textContent=n;num.style.animation='none';void num.offsetWidth;num.style.animation='cdpop .9s ease-out both'};
+  const show=n=>{num.textContent=n;num.style.animation='none';void num.offsetWidth;num.style.animation='cdpop .9s ease-out both';sfx('count')};
   const ease='cubic-bezier(.45,0,.55,1)';
   /* tempos (ms): STEP = intervalo entre os números; tIn = fade-in; tFade = fade-out.
      A tela fica escura durante o "3", o "2" e quase todo o "1"; o fade-out começa perto do fim do "1" e termina junto com ele (3*STEP). */
@@ -857,15 +890,17 @@ function startCountdown(){if(cdBusy)return;cdBusy=true;cdCancel=false;const w=S.
   setTimeout(()=>ov.animate([{opacity:1},{opacity:0}],{duration:tFade,easing:ease,fill:'forwards'}),3*STEP-tFade);   /* clareia só perto do sumiço do "1" */
   setTimeout(()=>show(1),2*STEP);                                                                            /* "1" ainda sobre a tela escura */
   setTimeout(()=>{const go=!cdCancel&&w.arming;ov.remove();num.remove();w.arming=false;cdBusy=false;       /* fim: só começa se a contagem não foi cancelada (ex.: Fim/reset) */
-    if(go){w.running=true;w.last=Date.now();w.trace=[[0,0]];w.trLast=0;if(w.mode==='horda')w.gh=null;else{w.gh=ghostFor(route());ensureEvs()}wakeOn()}render()},3*STEP)}
-function toggleWo(){const w=S.wo;if(cdBusy)return;if(!w.running&&!(w.dist>0)){startCountdown();return}w.running=!w.running;w.last=Date.now();w.running?wakeOn():(wakeOff(),evShow(''));render()}
-function resetWo(){if(cdBusy)cdCancel=true;waveReset();const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,arming:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0});evShow('');wakeOff();store('cad_wo',null);
+    if(go){sfx('go');w.running=true;w.last=Date.now();w.trace=[[0,0]];w.trLast=0;if(w.mode==='horda')w.gh=null;else{w.gh=ghostFor(route());ensureEvs()}wakeOn()}render()},3*STEP)}
+function toggleWo(){const w=S.wo;if(cdBusy)return;if(!w.running&&!(w.dist>0)&&!w.auto){startCountdown();return}w.running=!w.running;w.last=Date.now();w.auto=false;if(w.running)w.armed=false;   /* retomada manual: só rearma quando voltar a pedalar */
+  wakeOn();if(!w.running)evShow('');beep(w.running?'resume':'pause');render()}
+function resetWo(){if(cdBusy)cdCancel=true;waveReset();const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,arming:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0,armed:false,auto:false});evShow('');wakeOff();store('cad_wo',null);
   if(had&&S.cur)q({t:'del',tb:'active_workouts',col:'profile_id',val:S.cur})}
 function finish(auto){const w=S.wo,r=route(),p=profile();w.running=false;
-  if(w.dist<0.05){toast('Treino muito curto para ser salvo');resetWo();render();return}
+  if(w.dist<0.05){sfx('end');toast('Treino muito curto para ser salvo');resetWo();render();return}
   const done=auto||w.dist>=r.dist*.99,prevBest=userBest(r),avg=w.dist/(w.secs/3600),horda=w.mode==='horda';
   /* recompensa final: km restantes, conclusão e velocidade média */
-  kmSync();if(done)addGain(ECO.coinConc,ECO.xpConc);if(w.secs>0)addGain(avg*ECO.coinVel,0);
+  sfxHold=true;kmSync();if(done)addGain(ECO.coinConc,ECO.xpConc);if(w.secs>0)addGain(avg*ECO.coinVel,0);sfxHold=false;
+  sfx(done?'win':'end');
   w.trace.push([Math.round(w.secs),+w.dist.toFixed(3)]);
   const g=G(p),lv0=lvInfo(g.xp).l;g.coins+=w.coins;g.xp+=w.xp;const lv1=lvInfo(g.xp).l;
   const h={id:uid(),routeId:r.id,routeName:r.name,date:Date.now(),dist:+w.dist.toFixed(3),time:w.secs,avgSpd:avg,avgHr:w.hrN?Math.round(w.hrSum/w.hrN):0,maxHr:Math.round(w.hrMax),done,inten:S.inten,coins:w.coins,xp:w.xp,evOk:w.evOk,evTot:w.evTot,mode:w.mode||'normal'};
@@ -910,7 +945,7 @@ let tickN=0;
 /* tempo e distância usam o relógio real (Date.now), não a contagem de ticks: o iOS atrasa timers.
    Lacunas > 3 s (app em segundo plano) não são contadas. */
 /* avança tempo/distância pelo relógio real; devolve false se a rota terminou */
-function advance(){const w=S.wo,now=Date.now(),dtRaw=Math.min(Math.max((now-(w.last||now))/1000,0),3);w.last=now;
+function advance(){autoCheck();const w=S.wo,now=Date.now(),dtRaw=Math.min(Math.max((now-(w.last||now))/1000,0),3);w.last=now;
   if(w.running&&route()){const L=live(),m=(S.sim.on?w.mult:1)*dtRaw,r=route();const f=factor(grade(r,Math.min(1,w.dist/r.dist)));w.secs+=m;w.dist+=L.spd/3600*m*f;
     if(L.hr>0&&dtRaw>0){w.hrSum+=L.hr*dtRaw;w.hrN+=dtRaw;w.hrMax=Math.max(w.hrMax,L.hr)}
     if(w.dist>=r.dist){w.dist=r.dist;finish(true);return false}
@@ -920,11 +955,12 @@ setInterval(()=>{if(!advance())return;evTick();const w=S.wo,now=Date.now();
   if((w.running||w.dist>0)&&++tickN%3===0){const sv={...w,running:false,arming:false,profile:S.cur,saved:now,gh:w.gh?{src:w.gh.src,name:w.gh.name,total:w.gh.total,me:w.gh.me,re:1}:null}; /* sobrevive se o iOS recarregar a página */
     store('cad_wo',sv);
     if(tickN%15===0&&S.cur)q({t:'up',tb:'active_workouts',row:{profile_id:S.cur,data:sv,saved:now}})} /* e, a cada ~15 s, vai para o Supabase */
+  wakeKeep();
   if(S.cur&&S.tab==='treino')updLive();else if(S.cur&&S.tab==='home')updHome()},1000);
 /* Atualização rápida: a cada leitura recebida do sensor (no máximo 1 por frame), só os números.
    A taxa é a da própria bike; nada é interpolado nem inventado. O mapa/gráfico continuam a 1 s. */
 let fastRaf=0,rateT={};
-function fastUpd(k){const n=performance.now(),a=rateT[k]||(rateT[k]=[]);a.push(n);if(a.length>10)a.shift();
+function fastUpd(k){autoCheck();const n=performance.now(),a=rateT[k]||(rateT[k]=[]);a.push(n);if(a.length>10)a.shift();
   if(a.length>2){const dt=(a[a.length-1]-a[0])/(a.length-1)/1000;if(dt>0)S.sensor.rate[k]=1/dt}
   if(fastRaf)return;
   fastRaf=requestAnimationFrame(()=>{fastRaf=0;
@@ -1015,7 +1051,7 @@ function avatarXP(p,size=56){const I=lvInfo(G(p).xp),pad=6,D=size+pad*2,r=D/2-2.
 /* ---------- Loja de Componentes ---------- */
 const bonusTxt=b=>{const t=[];if(b.flat)t.push('+'+pct(b.flat)+' em trechos planos');if(b.climb)t.push('+'+pct(b.climb)+' nas subidas');if(b.down)t.push('+'+pct(b.down)+' nas descidas');if(b.all)t.push('+'+pct(b.all)+' em todo o percurso');return t.length?t.join(' · '):'Sem bônus (equipamento inicial)'};
 const rarBadge=r=>`<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border" style="color:${RAR[r].c};border-color:${RAR[r].c}77">${RAR[r].n}</span>`;
-const woBusy=()=>S.wo.dist>0||S.wo.running||S.wo.arming;
+const woBusy=()=>S.wo.dist>0||S.wo.running||S.wo.arming||S.wo.auto;
 function setShopCat(id){S.shopCat=id;render()}
 function itemCard(it,g,I){const R=RAR[it.r],own=g.inv.includes(it.id),eq=g.eq[it.slot]===it.id,lock=I.l<it.lv,can=g.coins>=it.price;let btn;
   if(eq)btn=`<div class="py-2 text-center text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1"><i data-lucide="check" class="w-4 h-4"></i>Equipado</div>`;
@@ -1127,7 +1163,7 @@ function restoreWo(remote){let sv=load('cad_wo',null);
   if(sv&&sv.profile===S.cur&&profile()&&sv.dist>0&&S.routes.some(r=>r.id===sv.route)&&Date.now()-sv.saved<43200000){
     sv={...sv};delete sv.profile;delete sv.saved;if(sv.coins==null&&sv.pts!=null){sv.coins=sv.pts;sv.xp=Math.round(sv.pts*1.5)}delete sv.pts;if(!Array.isArray(sv.trace))sv.trace=[];
     const hadGh=!!(sv.gh&&sv.gh.re);if(hadGh)sv.gh=null;
-    Object.assign(S.wo,sv,{running:false,last:Date.now()});if(hadGh){const rr=S.routes.find(x=>x.id===S.wo.route);S.wo.gh=rr?ghostFor(rr):null}S.wo.evCur=null;S.wo.evs.forEach(x=>{if(x.st==='on')x.st='lost'});S.tab='treino';
+    Object.assign(S.wo,sv,{running:false,last:Date.now(),armed:false,auto:false});if(hadGh){const rr=S.routes.find(x=>x.id===S.wo.route);S.wo.gh=rr?ghostFor(rr):null}S.wo.evCur=null;S.wo.evs.forEach(x=>{if(x.st==='on')x.st='lost'});S.tab='treino';
     setTimeout(()=>toast('Treino anterior restaurado. Reconecte os sensores e toque em Retomar'),400)}}
 /* Ao abrir o app sempre vai para a seleção de perfil; o último perfil só é usado para carregar os dados */
 let bootRemote;
