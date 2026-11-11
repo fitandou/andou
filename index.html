@@ -303,7 +303,7 @@ function lvInfo(xp){let l=1,r=xp;while(r>=lvCost(l)&&l<MAXLV){r-=lvCost(l);l++}r
    continua funcionando só com localStorage (neste aparelho). */
 const SUPABASE_URL='https://nxerskmlvqxpgckpmvne.supabase.co';
 /* Notificações push em segundo plano: cole aqui a chave PÚBLICA VAPID (ver LEIA-ME-NOTIFICACOES.md). Vazia = só avisos locais com o app aberto. */
-const VAPID_PUBLIC='';
+const VAPID_PUBLIC='BAvoBUgT39f8KyzJihrtj4IIJfopPxaaDEf0agia7YJqEdoidY0GXIZGmVfyehcdR1xhZ1aSWVYfUZfoP_msj8o';
 const SUPABASE_ANON_KEY='sb_publishable_1bJgblIKv3S288IEM6P8pA_JJ4cJNe6';
 const sb=(SUPABASE_URL&&SUPABASE_ANON_KEY&&window.supabase)?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 S.sync=sb?'ok':'off';
