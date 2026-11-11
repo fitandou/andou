@@ -38,6 +38,7 @@ input[type=range]{accent-color:#0a78d2;width:100%}
 /* mobile vertical: colunas viram "contents" para reordenar os blocos da aba Treino numa única coluna */
 @media(max-width:1023px){.tr-cols{display:contents!important}}
 @media(max-width:639px){.tabbtn{flex:1 1 0;justify-content:center;padding-left:.25rem!important;padding-right:.25rem!important}.tabbtn:not(.on) .lbl{display:none}.tabbtn.on{flex:2.2 1 0}}
+.tabbtn{transition:color .18s,border-color .18s}
 .hz-alert{box-shadow:0 0 0 2px #ff4d4d,0 0 20px rgba(255,77,77,.55)!important;animation:hzp .8s ease-in-out infinite alternate}@keyframes hzp{to{box-shadow:0 0 0 2px #ff4d4d,0 0 4px rgba(255,77,77,.2)}}
 /* eventos: fundo escurecido, carimbo (CONCLUÍDO/FRACASSOU) e impacto do card */
 @keyframes evfade{from{opacity:0}to{opacity:1}}.ev-dim{animation:evfade .3s ease-out}
@@ -841,7 +842,7 @@ function homeTab(){
 
 /* ---------- Estrutura principal ---------- */
 function shell(){const p=profile();
-  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" aria-label="${id}" class="tabbtn relative ${S.tab===id?'on':''} flex items-center gap-2 px-4 py-2 sm:py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-white text-white':'border-transparent text-white/70 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4 shrink-0"></i><span class="lbl">${l}</span>${(id==='treino'||id==='maratona'&&S.wo.mode==='maratona')&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}${id==='perfil'&&wDue(p)?'<span class="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-ember ring-2 ring-brand" aria-label="Atualizar peso"></span>':''}</button>`;
+  const tab=(id,ic,l)=>`<button onclick="navTo('${id}')" aria-label="${id}" class="tabbtn relative ${S.tab===id?'on':''} flex items-center gap-2 px-4 py-2 sm:py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-white text-white':'border-transparent text-white/70 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4 shrink-0"></i><span class="lbl">${l}</span>${(id==='treino'||id==='maratona'&&S.wo.mode==='maratona')&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}${id==='perfil'&&wDue(p)?'<span class="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-ember ring-2 ring-brand" aria-label="Atualizar peso"></span>':''}</button>`;
   return `<header class="bg-brand border-b border-white/15 sticky top-0 z-30"><div class="max-w-6xl mx-auto px-3 sm:px-4 flex items-center gap-x-2 sm:gap-x-4 flex-wrap">
    <div class="flex items-center gap-2 text-white py-1.5 sm:py-3"><i data-lucide="bike" class="w-5 h-5 sm:w-6 sm:h-6"></i><span class="font-display text-2xl sm:text-3xl font-extrabold">Andou!</span></div>
    <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('treino','gauge','Treino')}${tab('rotas','map','Rotas')}${tab('maratona','swords','Maratona')}${tab('loja','shopping-bag','Loja')}${tab('conquistas','award','Conquistas')}${tab('perfil','user','Perfil<span class="hidden sm:inline"> & Histórico</span>')}</nav>
@@ -867,7 +868,22 @@ let SW=null;
    só navegadores sem suporte a 'clip' (iOS < 16) usam o plano B de travar o overflow do <html> durante o deslize. */
 const OVC=!!(window.CSS&&CSS.supports&&CSS.supports('overflow-x','clip'));
 function navCenter(){const n=document.querySelector('header nav'),b=n&&n.querySelector('.tabbtn.on');if(n&&b)n.scrollLeft+=b.getBoundingClientRect().left-n.getBoundingClientRect().left-(n.clientWidth-b.offsetWidth)/2}
-function swAbort(){const s=SW;SW=null;if(!s)return;clearTimeout(s.tm);Object.values(s.pv||{}).forEach(p=>p.remove());
+/* Menu superior: troca o destaque da aba na hora (sem redesenhar) para acompanhar o deslize/animação */
+function navHi(id){const n=document.querySelector('header nav');if(!n)return;
+  n.querySelectorAll('.tabbtn').forEach(b=>{const on=b.getAttribute('aria-label')===id;
+    b.classList.toggle('on',on);b.classList.toggle('border-white',on);b.classList.toggle('text-white',on);
+    b.classList.toggle('border-transparent',!on);b.classList.toggle('text-white/70',!on);b.classList.toggle('hover:text-white',!on)});
+  const b=n.querySelector('.tabbtn.on');
+  if(b)n.scrollTo({left:n.scrollLeft+b.getBoundingClientRect().left-n.getBoundingClientRect().left-(n.clientWidth-b.offsetWidth)/2,behavior:'smooth'})}
+/* A prévia fica por cima enquanto a aba real é montada e some em fade: tudo que a aba real ajusta depois de desenhar
+   (imagens, alturas, ícones, animações de entrada) acontece por baixo, em vez de "aparecer do nada". */
+function swFade(pv){if(!pv)return;pv.style.transition='opacity .22s ease-out .16s';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{pv.style.opacity='0'}));setTimeout(()=>pv.remove(),500)}
+let NAV=null;
+function swAbort(){
+  if(NAV){const n=NAV;NAV=null;clearTimeout(n.tm);n.pv.remove();n.main.style.transform=n.main.style.transition=n.main.style.willChange='';if(!OVC)document.documentElement.style.overflowX='';navHi(S.tab)}
+  const s=SW;SW=null;if(!s)return;clearTimeout(s.tm);Object.values(s.pv||{}).forEach(p=>p.remove());
+  if(s.hl&&s.hl!==S.tab&&!s.go)navHi(S.tab);
   if(s.cur){s.cur.style.transform=s.cur.style.transition=s.cur.style.willChange=''}if(!OVC)document.documentElement.style.overflowX=''}
 function swBlocked(el){
   if(!el||!el.closest||!el.closest('main'))return true;
@@ -900,14 +916,31 @@ function swMake(t){const k=S.tab,hd=document.querySelector('header');let h='';
   document.body.appendChild(p);lucide.createIcons();swHydrate(p,t);return p}
 function swMove(dx){const s=SW,W=innerWidth,dir=dx<0?1:-1,t=TAB_ORDER[s.idx+dir];
   dx=Math.max(-W,Math.min(W,dx));s.dx=dx;Object.values(s.pv).forEach(p=>p.style.display='none');
+  const hl=t&&Math.abs(dx)>W*.33?t:S.tab;if(s.hl!==hl){s.hl=hl;navHi(hl)}   /* menu troca junto com o dedo (mesmo limiar que confirma a troca) */
   if(!t){s.cur.style.transform=`translate3d(${dx*.28}px,0,0)`;return}   /* primeira/última aba: resistência */
   const p=s.pv[dir]||(s.pv[dir]=swMake(t));p.style.display='';
   s.cur.style.transform=`translate3d(${dx}px,0,0)`;p.style.transform=`translate3d(${dir*W+dx}px,0,0)`}
-function swFinish(s,go){s.done=true;const W=innerWidth,tr='transform .26s cubic-bezier(.2,.8,.2,1)',pv=s.pv[s.dir];
+function swFinish(s,go){s.done=true;s.go=go;const W=innerWidth,tr='transform .26s cubic-bezier(.2,.8,.2,1)',pv=s.pv[s.dir],nx=go?s.next:S.tab;
+  if(s.hl!==nx){s.hl=nx;navHi(nx)}   /* menu já no destino ao soltar o dedo, sem esperar a animação nem o redesenho */
   s.cur.style.transition=tr;s.cur.style.transform=`translate3d(${go?-s.dir*W:0}px,0,0)`;
   if(pv){pv.style.transition=tr;pv.style.transform=`translate3d(${go?0:s.dir*W}px,0,0)`}
-  let fin=false;const end=()=>{if(fin)return;fin=true;swAbort();if(go){window.scrollTo(0,0);setTab(s.next)}};
-  s.cur.addEventListener('transitionend',end,{once:true});s.tm=setTimeout(end,400)}
+  let fin=false;const end=()=>{if(fin)return;fin=true;clearTimeout(s.tm);
+    const keep=go&&pv?pv:null;if(keep)delete s.pv[s.dir];
+    swAbort();if(go){window.scrollTo(0,0);setTab(s.next)}swFade(keep)};
+  s.cur.addEventListener('transitionend',e=>{if(e.target===s.cur&&e.propertyName==='transform')end()});s.tm=setTimeout(end,360)}
+/* Toque no menu: mesma animação de deslize do gesto (direção pela ordem das abas), com o menu trocando junto */
+function navTo(t){
+  if(NAV)NAV.end();
+  const from=TAB_ORDER.indexOf(S.tab),to=TAB_ORDER.indexOf(t),main=document.querySelector('main'),hd=document.querySelector('header'),md=$('#modal');
+  if(t===S.tab||from<0||to<0||SW||!main||!hd||!S.cur||!profile()||(md&&md.childElementCount)||(S.tab==='maratona'&&(S.mr.ph==='race'||S.mr.ph==='cd'))||(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches)){setTab(t);return}
+  const dir=to>from?1:-1,W=innerWidth,pv=swMake(t),tr='transform .3s cubic-bezier(.2,.8,.2,1)';
+  main.style.willChange='transform';if(!OVC)document.documentElement.style.overflowX='hidden';
+  pv.style.transform=`translate3d(${dir*W}px,0,0)`;navHi(t);void pv.offsetWidth;
+  main.style.transition=pv.style.transition=tr;
+  main.style.transform=`translate3d(${-dir*W}px,0,0)`;pv.style.transform='translate3d(0,0,0)';
+  const n=NAV={pv,main,tm:0,end(){if(NAV!==n)return;NAV=null;clearTimeout(n.tm);if(!OVC)document.documentElement.style.overflowX='';window.scrollTo(0,0);setTab(t);swFade(pv)}};
+  main.addEventListener('transitionend',e=>{if(e.target===main&&e.propertyName==='transform')n.end()});
+  n.tm=setTimeout(n.end,420)}
 /* Android (Chrome/WebView): o navegador assume a rolagem e dispara pointercancel quando o dedo tem um pouco de movimento vertical, então o
    deslize morria no meio. No Android o gesto usa eventos de toque (touchmove não passivo, cancelável desde o início), com limiar de
    início menor, tolerância maior para o movimento diagonal e folga no teste de rolagem horizontal. No iOS nada muda (pointer events). */
@@ -918,7 +951,7 @@ function swDown(e){
   if(S.tab==='maratona'&&(S.mr.ph==='race'||S.mr.ph==='cd'))return;   /* corrida em andamento: sem troca acidental de aba */
   if(!S.cur||!profile()||!document.querySelector('header')||e.clientX<18||e.clientX>innerWidth-18||swBlocked(e.target))return;
   const idx=TAB_ORDER.indexOf(S.tab);if(idx<0)return;
-  SW={id:e.pointerId,x0:e.clientX,y0:e.clientY,idx,mode:0,dx:0,dir:1,pv:{},hist:[[performance.now(),e.clientX]]}}
+  SW={id:e.pointerId,x0:e.clientX,y0:e.clientY,idx,mode:0,dx:0,dir:1,pv:{},hl:S.tab,hist:[[performance.now(),e.clientX]]}}
 function swMv(e){
   const s=SW;if(!s||s.done||e.pointerId!==s.id)return;
   const dx=e.clientX-s.x0,dy=e.clientY-s.y0;
