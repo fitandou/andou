@@ -1,6 +1,6 @@
 /* Service worker do Andou! – permite instalar o app e abrir mesmo offline.
    Para publicar uma versão nova do app, aumente o número em CACHE. */
-const CACHE='andou-v2';
+const CACHE='andou-v3';
 const SHELL=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','icon-maskable-512.png'];
 const CDN=['unpkg.com','cdn.jsdelivr.net','fonts.googleapis.com','fonts.gstatic.com'];
 
@@ -28,3 +28,14 @@ self.addEventListener('fetch',e=>{
     return hit||net;
   })));
 });
+
+/* ---------- Notificações push (lembretes de treino e pesagem) ---------- */
+self.addEventListener('push',e=>{
+  let d={};try{d=e.data?e.data.json():{}}catch(_){d={body:e.data?e.data.text():''}}
+  e.waitUntil(self.registration.showNotification(d.title||'Andou!',{
+    body:d.body||'',tag:d.tag||undefined,icon:'icon-192.png',badge:'icon-192.png',data:{url:d.url||'./'}}))});
+self.addEventListener('notificationclick',e=>{
+  e.notification.close();const url=(e.notification.data&&e.notification.data.url)||'./';
+  e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(l=>{
+    for(const c of l)if('focus' in c)return c.focus();
+    return self.clients.openWindow(url)}))});

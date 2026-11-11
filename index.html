@@ -210,6 +210,7 @@ window.addEventListener('error',function(e){show('Não foi possível iniciar o a
    -- Realtime: em Project Settings › Realtime deixe habilitado o acesso público aos canais (Broadcast). A sala é o canal "maratona:CÓDIGO".
    -- APELIDO DA BIKE (rodar uma vez; sem isso o apelido fica só neste aparelho): alter table profiles add column if not exists bike_name text default '';
    -- INTERVALO DE PESAGEM (rodar uma vez; sem isso a escolha fica só neste aparelho): alter table profiles add column if not exists weigh_int text default 'w';
+   -- LEMBRETES PUSH (ver reminders.sql, que cria também push_subs e reminders_sent): alter table profiles add column if not exists reminders jsonb;
    -- (futuros slots equipáveis, como título, ganham colunas próprias: profile_title_id...)
 */
 /* ---------- Utilidades ---------- */
@@ -297,6 +298,8 @@ function lvInfo(xp){let l=1,r=xp;while(r>=lvCost(l)&&l<MAXLV){r-=lvCost(l);l++}r
    Preencha com os dados de Project Settings › API. Se ficarem vazios, o app
    continua funcionando só com localStorage (neste aparelho). */
 const SUPABASE_URL='https://nxerskmlvqxpgckpmvne.supabase.co';
+/* Notificações push em segundo plano: cole aqui a chave PÚBLICA VAPID (ver LEIA-ME-NOTIFICACOES.md). Vazia = só avisos locais com o app aberto. */
+const VAPID_PUBLIC='BAvoBUgT39f8KyzJihrtj4IIJfopPxaaDEf0agia7YJqEdoidY0GXIZGmVfyehcdR1xhZ1aSWVYfUZfoP_msj8o';
 const SUPABASE_ANON_KEY='sb_publishable_1bJgblIKv3S288IEM6P8pA_JJ4cJNe6';
 const sb=(SUPABASE_URL&&SUPABASE_ANON_KEY&&window.supabase)?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 S.sync=sb?'ok':'off';
@@ -314,12 +317,12 @@ function mergeAch(a,b){const r=(a&&typeof a==='object'&&!Array.isArray(a))?JSON.
     const ls=l.s||{};for(const k in ls){const v=ls[k];if(Array.isArray(v))r.s[k]=[...new Set([...(Array.isArray(r.s[k])?r.s[k]:[]),...v])];else if(typeof v==='number'){if(!(r.s[k]>=v))r.s[k]=v}else if(r.s[k]==null)r.s[k]=v}
     if(!r.pin.length&&Array.isArray(l.pin))r.pin=l.pin.slice()}
   r.pin=r.pin.filter(id=>r.u[id]).slice(0,3);return r}
-const pRow=p=>({id:p.id,name:p.name,weight:p.weight,height:p.height,photo:p.photo||'',inten:p.inten||S.inten,sex:p.sex||'',game:G(p),profile_frame_id:p.frame||'',profile_mascot_id:p.mascot||'',owned_items:p.owned||[],profile_frame_color:p.frameColor||'',mascot_data:PD(p),achievements:p.ach||{},pw_hash:p.pwh||'',pw_salt:p.pws||'',bike_name:p.bike||'',weigh_int:p.wint||'w'});
+const pRow=p=>({id:p.id,name:p.name,weight:p.weight,height:p.height,photo:p.photo||'',inten:p.inten||S.inten,sex:p.sex||'',game:G(p),profile_frame_id:p.frame||'',profile_mascot_id:p.mascot||'',owned_items:p.owned||[],profile_frame_color:p.frameColor||'',mascot_data:PD(p),achievements:p.ach||{},pw_hash:p.pwh||'',pw_salt:p.pws||'',bike_name:p.bike||'',weigh_int:p.wint||'w',reminders:p.rem||null});
 const wlRow=(pid,e)=>({id:e.id,profile_id:pid,date:e.date,weight:e.weight});
 const fromWl=x=>({id:x.id,date:+x.date,weight:+x.weight});
 const rRow=r=>({id:r.id,name:r.name,descr:r.desc||'',photo:r.photo||'',dist:r.dist,elev:r.elev,track:r.track||null,demo:!!r.demo,sim_elev:!!r.simElev});
 const wRow=(pid,h)=>({id:h.id,profile_id:pid,route_id:h.routeId,route_name:h.routeName,date:h.date,dist:h.dist,time:h.time,avg_spd:h.avgSpd||0,avg_hr:h.avgHr||0,max_hr:h.maxHr||0,kcal:h.kcal||0,avg_cad:h.avgCad||0,done:!!h.done,inten:h.inten||'off',coins:h.coins||0,xp:h.xp||0,trace:h.trace||null,mode:h.mode||'normal',ev_ok:h.evOk||0,ev_tot:h.evTot||0,pet_id:h.petId||'',pet_xp:h.petXp||0});
-const fromP=(x,o)=>({id:x.id,name:x.name,weight:+x.weight,height:+x.height,photo:x.photo||'',inten:x.inten,sex:x.sex!==undefined?(x.sex||''):((o&&o.sex)||''),game:(x.game!=null&&typeof x.game==='object')?x.game:((o&&o.game)||undefined),frame:x.profile_frame_id!==undefined?(x.profile_frame_id||''):((o&&o.frame)||''),mascot:x.profile_mascot_id!==undefined?(x.profile_mascot_id||''):((o&&o.mascot)||''),owned:[...new Set([...(Array.isArray(x.owned_items)?x.owned_items:[]),...((o&&o.owned)||[])])],frameColor:x.profile_frame_color!==undefined?(x.profile_frame_color||''):((o&&o.frameColor)||''),pets:mergePets(x.mascot_data,o&&o.pets),ach:mergeAch(x.achievements,o&&o.ach),pwh:x.pw_hash||(o&&o.pwh)||'',pws:x.pw_hash?(x.pw_salt||''):((o&&o.pws)||''),bike:x.bike_name!==undefined?(x.bike_name||''):((o&&o.bike)||''),wint:(x.weigh_int&&WINT[x.weigh_int])?x.weigh_int:((o&&o.wint)||'w'),history:[],wlog:(o&&o.wlog)||[]});
+const fromP=(x,o)=>({id:x.id,name:x.name,weight:+x.weight,height:+x.height,photo:x.photo||'',inten:x.inten,sex:x.sex!==undefined?(x.sex||''):((o&&o.sex)||''),game:(x.game!=null&&typeof x.game==='object')?x.game:((o&&o.game)||undefined),frame:x.profile_frame_id!==undefined?(x.profile_frame_id||''):((o&&o.frame)||''),mascot:x.profile_mascot_id!==undefined?(x.profile_mascot_id||''):((o&&o.mascot)||''),owned:[...new Set([...(Array.isArray(x.owned_items)?x.owned_items:[]),...((o&&o.owned)||[])])],frameColor:x.profile_frame_color!==undefined?(x.profile_frame_color||''):((o&&o.frameColor)||''),pets:mergePets(x.mascot_data,o&&o.pets),ach:mergeAch(x.achievements,o&&o.ach),pwh:x.pw_hash||(o&&o.pwh)||'',pws:x.pw_hash?(x.pw_salt||''):((o&&o.pws)||''),bike:x.bike_name!==undefined?(x.bike_name||''):((o&&o.bike)||''),wint:(x.weigh_int&&WINT[x.weigh_int])?x.weigh_int:((o&&o.wint)||'w'),rem:(x.reminders&&typeof x.reminders==='object')?x.reminders:((o&&o.rem)||undefined),history:[],wlog:(o&&o.wlog)||[]});
 const fromR=x=>({id:x.id,name:x.name,desc:x.descr||'',photo:x.photo||'',dist:+x.dist,elev:x.elev,track:x.track||undefined,demo:x.demo,simElev:x.sim_elev});
 const fromW=x=>({id:x.id,routeId:x.route_id,routeName:x.route_name,date:+x.date,dist:+x.dist,time:+x.time,avgSpd:+x.avg_spd,avgHr:+x.avg_hr,maxHr:+x.max_hr,kcal:+x.kcal||0,avgCad:+x.avg_cad||0,done:x.done,inten:x.inten,coins:+x.coins||+x.pts||0,xp:+x.xp||0,trace:Array.isArray(x.trace)?x.trace:null,mode:x.mode||'normal',evOk:+x.ev_ok||0,evTot:+x.ev_tot||0,petId:x.pet_id||'',petXp:+x.pet_xp||0});
 
@@ -333,7 +336,7 @@ async function flush(){if(!sb||flushing||!outbox.length)return;flushing=true;
   try{while(outbox.length){const o=outbox[0];
       let r=o.t==='up'?await sb.from(o.tb).upsert(o.row):await sb.from(o.tb).delete().eq(o.col,o.val);
       /* banco ainda sem colunas novas (sex, game; pts/coins/xp/trace/mode/ev_*): regrava sem elas, uma por vez, conforme o erro aponta */
-      if(r.error&&o.t==='up'&&(o.tb==='profiles'||o.tb==='workouts')){const row={...o.row},cols=o.tb==='profiles'?['sex','game','profile_frame_id','profile_mascot_id','owned_items','profile_frame_color','mascot_data','achievements','pw_hash','pw_salt','bike_name','weigh_int']:['coins','xp','trace','mode','pts','ev_ok','ev_tot','pet_id','pet_xp','kcal','avg_cad'];
+      if(r.error&&o.t==='up'&&(o.tb==='profiles'||o.tb==='workouts')){const row={...o.row},cols=o.tb==='profiles'?['sex','game','profile_frame_id','profile_mascot_id','owned_items','profile_frame_color','mascot_data','achievements','pw_hash','pw_salt','bike_name','weigh_int','reminders']:['coins','xp','trace','mode','pts','ev_ok','ev_tot','pet_id','pet_xp','kcal','avg_cad'];
         for(let i=0;i<12&&r.error;i++){const m=r.error.message||'';const c=cols.find(k=>k in row&&new RegExp('\\b'+k+'\\b','i').test(m));if(!c)break;delete row[c];r=await sb.from(o.tb).upsert(row)}}
       if(r.error){if(r.error.code){console.error(r.error);toast('O Supabase recusou uma gravação: '+r.error.message);outbox.shift();store('cad_outbox',outbox);continue}throw r.error}
       outbox.shift();store('cad_outbox',outbox)}
@@ -719,10 +722,78 @@ function photoModal(){openModal(`<h2 class="font-display text-3xl font-bold mb-4
   <form onsubmit="savePhoto(event)" class="space-y-3">${photoField()}
   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar foto</button></div></form>`)}
 function savePhoto(e){e.preventDefault();const p=profile();p.photo=photoOf(e.target.elements);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();render()}
+
+/* ---------- Lembretes (notificações) ----------
+   p.rem = {on, t:'HH:MM' (horário habitual de treino), d:[0-6] (dias da semana, 0 = domingo), w:true (avisar também na pesagem), set:1}
+   · Com VAPID_PUBLIC preenchido e o servidor de envio publicado, o aparelho recebe push mesmo com o app fechado.
+   · Sem isso, o app avisa (notificação local) enquanto estiver aberto ou em segundo plano recente. */
+const DOW=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],REM_K='cad_remsent',DEV_K='cad_dev';
+let PUSH_ACTIVE=false;
+const todayK=(d=new Date())=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function devId(){let d=load(DEV_K,null);if(!d){d=uid()+uid();store(DEV_K,d)}return d}
+const vapidKey=b=>{const p='='.repeat((4-b.length%4)%4),r=atob((b+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(r,c=>c.charCodeAt(0))};
+const notifPerm=()=>('Notification' in window)?Notification.permission:'unsupported';
+function remPersist(p){saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});render()}
+async function pushSub(){const p=profile();if(!p||isAdmin()||!p.rem||!p.rem.on)return;
+  if(!VAPID_PUBLIC||!('serviceWorker' in navigator)||!('PushManager' in window))return;
+  try{const reg=await navigator.serviceWorker.ready;let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKey(VAPID_PUBLIC)});
+    PUSH_ACTIVE=true;
+    q({t:'up',tb:'push_subs',row:{id:p.id+':'+devId(),profile_id:p.id,sub:sub.toJSON(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone||'America/Sao_Paulo',updated:Date.now()}})}
+  catch(e){console.warn('push:',e)}}
+const pushUnsub=p=>{PUSH_ACTIVE=false;q({t:'del',tb:'push_subs',col:'id',val:p.id+':'+devId()})};
+async function notifEnable(){
+  if(!('Notification' in window)){toast('Este navegador não permite notificações'+(IOS?' — instale o app na Tela de Início e abra por lá':''));return false}
+  let pm=Notification.permission;if(pm==='default'){try{pm=await Notification.requestPermission()}catch(e){}}
+  if(pm!=='granted'){render();return false}
+  await pushSub();render();return true}
+function remInit(){const p=profile();if(p&&!isAdmin()&&p.rem&&p.rem.on&&notifPerm()==='granted')pushSub()}
+async function remNotify(title,body,tag){try{if(notifPerm()!=='granted')return false;
+  const reg=('serviceWorker' in navigator)?await navigator.serviceWorker.getRegistration():null,o={body,tag,icon:'icon-192.png',badge:'icon-192.png',data:{url:'./'}};
+  if(reg&&reg.showNotification)await reg.showNotification(title,o);else new Notification(title,o);return true}catch(e){return false}}
+const remTest=()=>{remNotify('Andou! 🚴','Os lembretes estão funcionando.','teste').then(ok=>toast(ok?'Notificação enviada':'Não foi possível enviar a notificação'))};
+/* aviso local: treino (no horário, nos dias escolhidos, se ainda não treinou hoje) e pesagem (a partir das 9h do dia). Uma vez por dia. */
+function remTick(){const p=profile();if(!p||isAdmin()||!p.rem||!p.rem.on||PUSH_ACTIVE||notifPerm()!=='granted')return;
+  const now=new Date(),k=todayK(now),m=load(REM_K,{}),s=m[p.id]||(m[p.id]={}),mins=now.getHours()*60+now.getMinutes(),[hh,mm]=(p.rem.t||'18:00').split(':').map(Number),t0=hh*60+mm;
+  if(p.rem.d.includes(now.getDay())&&mins>=t0&&mins<t0+180&&s.x!==k&&!p.history.some(h=>todayK(new Date(h.date))===k)){s.x=k;store(REM_K,m);remNotify('Hora de pedalar! 🚴','Seu treino de hoje está te esperando, '+p.name+'.','treino-'+k)}
+  if(p.rem.w!==false&&s.w!==k&&mins>=540&&wDue(p)){s.w=k;store(REM_K,m);remNotify('Dia de pesagem ⚖️','Atualize seu peso no Andou! para acompanhar seu IMC.','peso-'+k)}}
+setInterval(remTick,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)remTick()});
+
+function remCnt(f){const n=f.querySelectorAll('input[name=rd]:checked').length,e=$('#remCnt');if(e)e.textContent='('+n+(n===1?' dia':' dias')+' por semana)'}
+function remModal(first){const p=profile();if(!p)return;const r=p.rem&&p.rem.d?p.rem:{on:true,t:'18:00',d:[1,3,5],w:true};
+  openModal(`<div class="flex items-center gap-2 text-neon mb-1"><i data-lucide="bell" class="w-6 h-6"></i><h2 class="font-display text-3xl font-bold">Lembretes de treino</h2></div>
+  <p class="text-sm text-zinc-400 mb-4">Quer um aviso para não esquecer de pedalar? Conte quando você costuma treinar e a gente te lembra no dia.</p>
+  <form onsubmit="remSubmit(event)" class="space-y-4">
+   <label class="block text-sm">Que horas você costuma treinar?<input name="rt" type="time" required value="${r.t||'18:00'}" class="${IN} mt-1"></label>
+   <div class="text-sm">Em quais dias da semana? <span id="remCnt" class="text-zinc-400"></span><div class="flex gap-1 mt-1">${DOW.map((n,i)=>`<label class="cursor-pointer flex-1 min-w-0"><input type="checkbox" name="rd" value="${i}" ${(r.d||[]).includes(i)?'checked':''} onchange="remCnt(this.form)" class="peer sr-only"><span class="block text-center py-2 text-xs sm:text-sm rounded-lg border border-line peer-checked:border-neon peer-checked:text-neon peer-checked:bg-neon/10 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-neon">${n}</span></label>`).join('')}</div></div>
+   <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rw" ${r.w!==false?'checked':''} class="w-4 h-4"><span>Avisar também no dia da pesagem (${WINT[wInt(p)].n.toLowerCase()})</span></label>
+   <p id="remErr" class="text-sm text-red-400 min-h-[1.25rem]" role="alert"></p>
+   <div class="flex gap-3"><button type="button" onclick="${first?'remSkip()':'closeModal()'}" class="flex-1 py-2.5 rounded-lg border border-line text-zinc-300">${first?'Agora não':'Cancelar'}</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">${first?'Ativar lembretes':'Salvar'}</button></div>
+   ${!first&&p.rem&&p.rem.on?`<button type="button" onclick="remOff()" class="w-full text-sm text-zinc-400 underline">Desativar lembretes</button>`:''}</form>`);
+  remCnt($('#modal form'))}
+async function remSubmit(e){e.preventDefault();const p=profile(),f=e.target;if(!p)return;
+  const d=[...f.querySelectorAll('input[name=rd]:checked')].map(x=>+x.value);
+  if(!d.length){const m=$('#remErr');if(m)m.textContent='Escolha pelo menos um dia da semana.';return}
+  p.rem={on:true,t:f.elements.rt.value||'18:00',d,w:f.elements.rw.checked,set:1};
+  const ok=notifEnable();   /* chamado ainda dentro do toque, que é o que o navegador exige para pedir a permissão */
+  remPersist(p);closeModal(true);
+  toast((await ok)?'Lembretes ativados':'Lembretes salvos. Falta permitir as notificações no navegador')}
+function remSkip(){const p=profile();if(!p)return;p.rem={on:false,t:'18:00',d:[1,3,5],w:true,set:1};closeModal(true);remPersist(p);toast('Você pode ativar em Perfil › Lembretes')}
+function remOff(){const p=profile();if(!p||!p.rem)return;p.rem.on=false;pushUnsub(p);closeModal(true);remPersist(p);toast('Lembretes desativados')}
+function remPrompt(n=0){const p=profile();if(!p||isAdmin()||p.rem)return;
+  if(S.wo.running||$('#modal').innerHTML||!p.pwh||!p.bike){if(n<120)setTimeout(()=>remPrompt(n+1),800);return}   /* espera senha, apelido e pesagem */
+  remModal(true)}
+function remCard(p){if(isAdmin())return '';const r=p.rem,pm=notifPerm(),on=!!(r&&r.on);
+  const sum=on?`Treino: ${r.d.map(i=>DOW[i]).join(', ')} às ${r.t}${r.w!==false?' · Pesagem '+WINT[wInt(p)].n.toLowerCase():''}`:'Lembretes desativados.';
+  const warn=on&&pm!=='granted'?(pm==='unsupported'?'Este navegador não permite notificações.'+(IOS?' No iPhone, instale o app na Tela de Início e abra por lá.':''):pm==='denied'?'As notificações estão bloqueadas nas configurações do navegador.':'Falta permitir as notificações neste aparelho.'):'';
+  const bt='text-sm px-3 py-2 rounded-lg border border-line text-zinc-300 hover:text-neon hover:border-neon';
+  return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2 flex items-center gap-2"><i data-lucide="bell" class="w-5 h-5 text-neon"></i>Lembretes</h3>
+   <div class="text-sm text-zinc-300">${sum}</div>${warn?`<div class="text-xs text-ember mt-1">${warn}</div>`:''}
+   <div class="flex gap-2 flex-wrap mt-3"><button onclick="remModal(false)" class="${bt}">${r?'Configurar':'Ativar lembretes'}</button>${on&&pm==='default'?`<button onclick="notifEnable()" class="${bt}">Permitir notificações</button>`:''}${on&&pm==='granted'?`<button onclick="remTest()" class="${bt}">Enviar teste</button>`:''}</div></section>`}
 function selectProfile(id){S.cur=id;store('cad_cur',id);applyInten();S.tab='home';
   /* retoma um treino interrompido só para o perfil que estava treinando (na primeira seleção após abrir o app) */
   if(bootRemote!==undefined){const rm=bootRemote;bootRemote=undefined;restoreWo(rm)}
-  profInit(profile());render();if(!profile().pwh)setTimeout(pwSetupModal,150);setTimeout(bikePrompt,250);setTimeout(weightPrompt,300)}
+  profInit(profile());render();if(!profile().pwh)setTimeout(pwSetupModal,150);setTimeout(bikePrompt,250);setTimeout(weightPrompt,300);setTimeout(remInit,600);setTimeout(remPrompt,1500)}
 function switchProfile(){if(S.wo.running||S.wo.dist>0){if(!confirm('Há um treino em andamento. Sair e descartá-lo?'))return;resetWo()}mrLeave(true);S.sim.on=false;const adm=isAdmin();S.cur=null;if(adm)ADMIN=null;else store('cad_cur',null);render()}
 function deleteProfile(){if(!confirm('Excluir este perfil e todo o histórico?'))return;resetWo();mrLeave(true);q({t:'del',tb:'profiles',col:'id',val:S.cur});S.profiles=S.profiles.filter(p=>p.id!==S.cur);saveProfiles();switchProfile()}
 
@@ -1583,7 +1654,7 @@ function perfil(){const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0)+G
    <button onclick="photoModal()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="camera" class="w-4 h-4"></i>Alterar foto</button>
    <button onclick="visitorView('${p.id}')" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i>Ver como visitante</button>
    <button onclick="deleteProfile()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember flex items-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i>Excluir perfil</button></div>
-   ${pinRow(p)}<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length+G(p).del.n)}${stat('Rotas com recorde',bests.length)}${stat('Nível',lvInfo(G(p).xp).l)}${stat('Engrenagens',G(p).coins.toLocaleString('pt-BR'),'text-white')}</div><div class="mt-3">${calBox(p,'bg-ink')}</div></section>${bmiCard(p)}
+   ${pinRow(p)}<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length+G(p).del.n)}${stat('Rotas com recorde',bests.length)}${stat('Nível',lvInfo(G(p).xp).l)}${stat('Engrenagens',G(p).coins.toLocaleString('pt-BR'),'text-white')}</div><div class="mt-3">${calBox(p,'bg-ink')}</div></section>${bmiCard(p)}${remCard(p)}
   <div class="grid md:grid-cols-2 gap-4"><section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-0.5">Melhores tempos</h3><div class="flex items-center gap-2 mb-2"><label for="bestMode" class="text-xs text-zinc-500 shrink-0">Modo de inclinação</label><select id="bestMode" onchange="setBestFilter(this.value)" aria-label="Filtrar melhores tempos por modo de inclinação" class="${IN} !w-auto !py-1 flex-1 sm:flex-none">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${bm===k?'selected':''}>${v.n}</option>`).join('')}<option value="all" ${bm==='all'?'selected':''}>Todos os modos</option></select></div>
    ${bests.length?bests.map(x=>`<button onclick="routeDetail('${x.r.id}')" class="w-full flex justify-between py-2 border-b border-line last:border-0 text-left hover:text-neon"><span class="truncate">${esc(x.r.name)}</span><span class="tabular-nums text-neon">${fmt(x.t)}</span></button>`).join(''):`<p class="text-sm text-zinc-400">${bm==='all'?'Conclua uma rota inteira para registrar seu primeiro recorde.':'Nenhum recorde neste modo ainda. Conclua uma rota inteira com a inclinação '+INT[bm].n+'.'}</p>`}</section>
   <section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2">Histórico de treinos</h3>
