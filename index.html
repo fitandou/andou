@@ -753,7 +753,7 @@ async function notifEnable(){
   await pushSub();render();return true}
 function remInit(){const p=profile();if(p&&!isAdmin()&&p.rem&&p.rem.on&&notifPerm()==='granted')pushSub()}
 async function remNotify(title,body,tag){try{if(notifPerm()!=='granted')return false;
-  const reg=('serviceWorker' in navigator)?await navigator.serviceWorker.getRegistration():null,o={body,tag,icon:'icon-192.png',badge:'badge-96.png',data:{url:'./'}};
+  const reg=('serviceWorker' in navigator)?await navigator.serviceWorker.getRegistration():null,o={body,tag,icon:'icon-192.png',badge:'badge-96.png?v=2',data:{url:'./'}};
   if(reg&&reg.showNotification)await reg.showNotification(title,o);else new Notification(title,o);return true}catch(e){return false}}
 const remTest=()=>{remNotify('Andou! 🚴','Os lembretes estão funcionando.','teste').then(ok=>toast(ok?'Notificação enviada':'Não foi possível enviar a notificação'))};
 /* aviso local: treino (no horário, nos dias escolhidos, se ainda não treinou hoje) e pesagem (a partir das 9h do dia). Uma vez por dia. */
