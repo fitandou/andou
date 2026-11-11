@@ -39,6 +39,10 @@ input[type=range]{accent-color:#0a78d2;width:100%}
 @media(max-width:1023px){.tr-cols{display:contents!important}}
 @media(max-width:639px){.tabbtn{flex:1 1 0;justify-content:center;padding-left:.25rem!important;padding-right:.25rem!important}.tabbtn:not(.on) .lbl{display:none}.tabbtn.on{flex:2.2 1 0}}
 .tabbtn{transition:color .18s,border-color .18s}
+/* campos de hora/data no iOS têm largura própria e vazavam do card: forçam a largura do container */
+input[type=time],input[type=date]{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;max-width:100%;box-sizing:border-box;text-align:left;min-height:2.6rem}
+input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and-time-value{text-align:left;margin:0}
+#modal form{max-width:100%}#modal form>*{min-width:0}
 .hz-alert{box-shadow:0 0 0 2px #ff4d4d,0 0 20px rgba(255,77,77,.55)!important;animation:hzp .8s ease-in-out infinite alternate}@keyframes hzp{to{box-shadow:0 0 0 2px #ff4d4d,0 0 4px rgba(255,77,77,.2)}}
 /* eventos: fundo escurecido, carimbo (CONCLUÍDO/FRACASSOU) e impacto do card */
 @keyframes evfade{from{opacity:0}to{opacity:1}}.ev-dim{animation:evfade .3s ease-out}
@@ -299,7 +303,7 @@ function lvInfo(xp){let l=1,r=xp;while(r>=lvCost(l)&&l<MAXLV){r-=lvCost(l);l++}r
    continua funcionando só com localStorage (neste aparelho). */
 const SUPABASE_URL='https://nxerskmlvqxpgckpmvne.supabase.co';
 /* Notificações push em segundo plano: cole aqui a chave PÚBLICA VAPID (ver LEIA-ME-NOTIFICACOES.md). Vazia = só avisos locais com o app aberto. */
-const VAPID_PUBLIC='BAvoBUgT39f8KyzJihrtj4IIJfopPxaaDEf0agia7YJqEdoidY0GXIZGmVfyehcdR1xhZ1aSWVYfUZfoP_msj8o';
+const VAPID_PUBLIC='';
 const SUPABASE_ANON_KEY='sb_publishable_1bJgblIKv3S288IEM6P8pA_JJ4cJNe6';
 const sb=(SUPABASE_URL&&SUPABASE_ANON_KEY&&window.supabase)?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 S.sync=sb?'ok':'off';
@@ -767,7 +771,7 @@ function remModal(first){const p=profile();if(!p)return;const r=p.rem&&p.rem.d?p
    <label class="block text-sm">Que horas você costuma treinar?<input name="rt" type="time" required value="${r.t||'18:00'}" class="${IN} mt-1"></label>
    <div class="text-sm">Em quais dias da semana? <span id="remCnt" class="text-zinc-400"></span><div class="flex gap-1 mt-1">${DOW.map((n,i)=>`<label class="cursor-pointer flex-1 min-w-0"><input type="checkbox" name="rd" value="${i}" ${(r.d||[]).includes(i)?'checked':''} onchange="remCnt(this.form)" class="peer sr-only"><span class="block text-center py-2 text-xs sm:text-sm rounded-lg border border-line peer-checked:border-neon peer-checked:text-neon peer-checked:bg-neon/10 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-neon">${n}</span></label>`).join('')}</div></div>
    <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rw" ${r.w!==false?'checked':''} class="w-4 h-4"><span>Avisar também no dia da pesagem (${WINT[wInt(p)].n.toLowerCase()})</span></label>
-   <p id="remErr" class="text-sm text-red-400 min-h-[1.25rem]" role="alert"></p>
+   <p id="remErr" class="text-sm text-red-400" style="margin-top:-.25rem" role="alert"></p>
    <div class="flex gap-3"><button type="button" onclick="${first?'remSkip()':'closeModal()'}" class="flex-1 py-2.5 rounded-lg border border-line text-zinc-300">${first?'Agora não':'Cancelar'}</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">${first?'Ativar lembretes':'Salvar'}</button></div>
    ${!first&&p.rem&&p.rem.on?`<button type="button" onclick="remOff()" class="w-full text-sm text-zinc-400 underline">Desativar lembretes</button>`:''}</form>`);
   remCnt($('#modal form'))}
