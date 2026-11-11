@@ -103,6 +103,9 @@ main{touch-action:pan-y pinch-zoom}
 .rdr{position:absolute;left:0;top:0;width:0;height:0;z-index:2;pointer-events:none;will-change:transform}
 .rdr-in{position:absolute;left:0;top:0;width:40px;height:40px;transform:translate(-50%,-50%)}
 .rdr-av{position:absolute;inset:0;border-radius:50%;background:#080f17;box-shadow:0 0 0 2px #fff,0 0 0 9px rgba(255,255,255,.25)}
+.map-in{inset:26px 38px 38px 26px}
+.rdr-in{transform:translate(-50%,-50%) scale(.8)}
+@media(min-width:1024px){.map-in{inset:0}.rdr-in{transform:translate(-50%,-50%)}}
 .rdr-gh .rdr-in{width:34px;height:34px}.rdr-gh .rdr-av{box-shadow:0 0 0 2px #9fd9ff,0 0 0 7px rgba(159,217,255,.16)}
 .rdr-pet{position:absolute;right:-24px;bottom:-22px;z-index:3;border-radius:50%;box-shadow:0 0 0 2px #06101a}
 .rdr-pet .mas{box-shadow:none}
@@ -110,6 +113,12 @@ main{touch-action:pan-y pinch-zoom}
 .mat.off{opacity:.38}.mat.off .val{color:#9ca3af}.mat-lg{margin-top:4px;font:500 9px/1 Archivo,sans-serif;color:#9ca3af}
 .mat .val{margin-left:auto;padding-left:8px;font-weight:800;color:#6ee7b7}
 .mat-box{background:rgba(6,16,26,.88);border:1px solid rgba(52,211,153,.65);border-radius:10px;padding:5px 8px 6px;box-shadow:0 0 12px rgba(52,211,153,.28);max-width:min(54%,210px)}
+.fit4{overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-right:4px;scrollbar-width:thin;scrollbar-color:#2f6396 transparent}
+.fit4::-webkit-scrollbar{width:5px}.fit4::-webkit-scrollbar-thumb{background:#2f6396;border-radius:4px}
+.mat-box.mat-flow{position:static;max-width:none;width:100%;margin-top:2px;flex-shrink:0}
+.mat-flow .mat{white-space:normal;min-width:0;font-size:11px}.mat-flow .mat span:nth-of-type(1){min-width:0}
+.mat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 12px}
+@media(min-width:640px){.mat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .mat-h{font:700 10px/1 Archivo,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#6ee7b7;margin-bottom:4px;display:flex;align-items:center;gap:4px}
 
 /* mascote (subperfil): avatar redondo com aro da cor da raridade; o emoji ocupa quase todo o círculo, sem cortar o animal */
@@ -133,6 +142,9 @@ main{touch-action:pan-y pinch-zoom}
 /* medalhas (conquistas) */
 .medal{border-radius:50%;display:grid;place-items:center;color:#0b1a2a;flex-shrink:0;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.8),rgba(255,255,255,0) 42%),linear-gradient(145deg,var(--m1),var(--m2));box-shadow:inset 0 0 0 3px rgba(0,0,0,.18),0 0 10px var(--m2)}
 .medal-off{filter:grayscale(1) brightness(.42);box-shadow:none;opacity:.75}
+@keyframes cdpop{0%{opacity:0;transform:scale(1.7)}30%{opacity:1}100%{opacity:1;transform:scale(1)}}
+body *{scrollbar-width:thin;scrollbar-color:#2f6396 transparent}
+body *::-webkit-scrollbar{width:5px;height:5px}body *::-webkit-scrollbar-thumb{background:#2f6396;border-radius:4px}body *::-webkit-scrollbar-track{background:transparent}
 </style>
 </head>
 <body>
@@ -185,6 +197,17 @@ window.addEventListener('load',function(){setTimeout(function(){if(typeof tailwi
    alter table profiles add column if not exists profile_frame_color text default '', add column if not exists mascot_data jsonb default '{}'::jsonb, add column if not exists achievements jsonb default '{}'::jsonb;
    -- profile_frame_color: cor escolhida da moldura Neon (#rrggbb) · mascot_data: XP por mascote, ex.: {"raposa":{"xp":1234}} · achievements: {u:{medalha:data}, pin:[até 3 ids], s:{estatísticas acumuladas}}
    alter table workouts add column if not exists pet_id text default '', add column if not exists pet_xp int default 0;   -- mascote e XP do mascote ganhos naquele treino
+   -- CALORIAS (rodar uma vez; sem isso o app recalcula as kcal dos treinos a partir da velocidade/FC média e do tempo):
+   alter table workouts add column if not exists kcal int default 0, add column if not exists avg_cad int default 0;
+   -- SENHA DO PERFIL (rodar uma vez; sem isso a senha fica só neste aparelho e os outros aparelhos pedirão para criar uma):
+   alter table profiles add column if not exists pw_hash text default '', add column if not exists pw_salt text default '';
+   -- pw_hash: hash da senha (SHA-256 com salt, nunca a senha em texto) · pw_salt: salt aleatório do perfil
+   -- MODO MARATONA (rodar uma vez; sem isso as rotas exclusivas da Maratona ficam só neste aparelho — a corrida online em si NÃO usa tabelas, só Realtime Broadcast):
+   create table if not exists maratona_routes(id text primary key, name text, descr text default '', photo text default '', dist numeric, elev jsonb, track jsonb, demo boolean default false, sim_elev boolean default false, created_at timestamptz default now());
+   alter table maratona_routes enable row level security;
+   create policy "maratona_routes_all" on maratona_routes for all using (true) with check (true);
+   -- Realtime: em Project Settings › Realtime deixe habilitado o acesso público aos canais (Broadcast). A sala é o canal "maratona:CÓDIGO".
+   -- APELIDO DA BIKE (rodar uma vez; sem isso o apelido fica só neste aparelho): alter table profiles add column if not exists bike_name text default '';
    -- (futuros slots equipáveis, como título, ganham colunas próprias: profile_title_id...)
 */
 /* ---------- Utilidades ---------- */
@@ -214,13 +237,21 @@ const S={
   cur:null,
   lastCur:load('cad_cur',null),
   tab:'home',
-  sim:{on:!navigator.bluetooth,cad:80,hr:135,spd:28},
+  sim:{on:false,cad:80,hr:135,spd:28},
   bt:{hr:null,csc:null,ftms:null},
   sensor:{spd:0,cad:0,hr:0,pw:0,ts:0,th:0,rate:{}},
-  wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,pxp:0,pet:'',elev:0,maxSpd:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0,armed:false,auto:false},
+  wo:{route:null,running:false,dist:0,secs:0,mult:1,hrSum:0,hrN:0,hrMax:0,spdSum:0,spdN:0,cadSum:0,cadN:0,coins:0,xp:0,pxp:0,pet:'',elev:0,maxSpd:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0,armed:false,auto:false},
   edit:null
 };
 if(!load('cad_routes',null))store('cad_routes',S.routes);
+/* MODO MARATONA: rotas exclusivas (nunca misturadas com S.routes) e estado da sala online */
+const MR_DEMO=[
+ {id:'mr-d1',name:'Maratona Costa Verde',desc:'42,2 km à beira-mar com ondulações suaves. Prova longa de resistência.',dist:42.2,photo:''},
+ {id:'mr-d2',name:'Meia Maratona da Serra',desc:'21,1 km com subidas sustentadas e descidas técnicas.',dist:21.1,photo:''},
+ {id:'mr-d3',name:'Desafio do Aterro 10K',desc:'10 km rápidos e planos: ideal para um duelo de velocidade.',dist:10,photo:''}
+].map(r=>({...r,elev:simElev(r.id),demo:true}));
+S.mr={ph:'lobby',cid:uid()+uid(),off:0,rtt:1e9,inten:null};S.mrRoutes=load('cad_mr_routes',null)||MR_DEMO;S.mrTb=true;S.mrLib=false;
+if(!load('cad_mr_routes',null))store('cad_mr_routes',S.mrRoutes);
 /* ---------- Intensidade de inclinação ---------- */
 const INT={off:{n:'Off',k:0},suave:{n:'Suave',k:.5},real:{n:'Realista',k:1},duro:{n:'Difícil',k:1.6}};
 S.inten=INT[load('cad_inten','real')]?load('cad_inten','real'):'real';
@@ -241,7 +272,7 @@ const ADMIN_ID='__admin__';let ADMIN=null;
 const isAdmin=()=>S.cur===ADMIN_ID;
 const isAdminOp=op=>!!(op&&((op.row&&(op.row.id===ADMIN_ID||op.row.profile_id===ADMIN_ID))||op.val===ADMIN_ID));
 const profile=()=>S.cur===ADMIN_ID&&ADMIN?ADMIN:S.profiles.find(p=>p.id===S.cur);
-const route=()=>S.routes.find(r=>r.id===S.wo.route)||S.routes[0];
+const route=()=>S.wo.mode==='maratona'&&S.mr.route?S.mr.route:(S.routes.find(r=>r.id===S.wo.route)||S.routes[0]);
 const saveProfiles=()=>store('cad_profiles',S.profiles);
 const saveRoutes=()=>store('cad_routes',S.routes);
 
@@ -281,14 +312,14 @@ function mergeAch(a,b){const r=(a&&typeof a==='object'&&!Array.isArray(a))?JSON.
     const ls=l.s||{};for(const k in ls){const v=ls[k];if(Array.isArray(v))r.s[k]=[...new Set([...(Array.isArray(r.s[k])?r.s[k]:[]),...v])];else if(typeof v==='number'){if(!(r.s[k]>=v))r.s[k]=v}else if(r.s[k]==null)r.s[k]=v}
     if(!r.pin.length&&Array.isArray(l.pin))r.pin=l.pin.slice()}
   r.pin=r.pin.filter(id=>r.u[id]).slice(0,3);return r}
-const pRow=p=>({id:p.id,name:p.name,weight:p.weight,height:p.height,photo:p.photo||'',inten:p.inten||S.inten,sex:p.sex||'',game:G(p),profile_frame_id:p.frame||'',profile_mascot_id:p.mascot||'',owned_items:p.owned||[],profile_frame_color:p.frameColor||'',mascot_data:PD(p),achievements:p.ach||{}});
+const pRow=p=>({id:p.id,name:p.name,weight:p.weight,height:p.height,photo:p.photo||'',inten:p.inten||S.inten,sex:p.sex||'',game:G(p),profile_frame_id:p.frame||'',profile_mascot_id:p.mascot||'',owned_items:p.owned||[],profile_frame_color:p.frameColor||'',mascot_data:PD(p),achievements:p.ach||{},pw_hash:p.pwh||'',pw_salt:p.pws||'',bike_name:p.bike||''});
 const wlRow=(pid,e)=>({id:e.id,profile_id:pid,date:e.date,weight:e.weight});
 const fromWl=x=>({id:x.id,date:+x.date,weight:+x.weight});
 const rRow=r=>({id:r.id,name:r.name,descr:r.desc||'',photo:r.photo||'',dist:r.dist,elev:r.elev,track:r.track||null,demo:!!r.demo,sim_elev:!!r.simElev});
-const wRow=(pid,h)=>({id:h.id,profile_id:pid,route_id:h.routeId,route_name:h.routeName,date:h.date,dist:h.dist,time:h.time,avg_spd:h.avgSpd||0,avg_hr:h.avgHr||0,max_hr:h.maxHr||0,done:!!h.done,inten:h.inten||'off',coins:h.coins||0,xp:h.xp||0,trace:h.trace||null,mode:h.mode||'normal',ev_ok:h.evOk||0,ev_tot:h.evTot||0,pet_id:h.petId||'',pet_xp:h.petXp||0});
-const fromP=(x,o)=>({id:x.id,name:x.name,weight:+x.weight,height:+x.height,photo:x.photo||'',inten:x.inten,sex:x.sex!==undefined?(x.sex||''):((o&&o.sex)||''),game:(x.game!=null&&typeof x.game==='object')?x.game:((o&&o.game)||undefined),frame:x.profile_frame_id!==undefined?(x.profile_frame_id||''):((o&&o.frame)||''),mascot:x.profile_mascot_id!==undefined?(x.profile_mascot_id||''):((o&&o.mascot)||''),owned:[...new Set([...(Array.isArray(x.owned_items)?x.owned_items:[]),...((o&&o.owned)||[])])],frameColor:x.profile_frame_color!==undefined?(x.profile_frame_color||''):((o&&o.frameColor)||''),pets:mergePets(x.mascot_data,o&&o.pets),ach:mergeAch(x.achievements,o&&o.ach),history:[],wlog:(o&&o.wlog)||[]});
+const wRow=(pid,h)=>({id:h.id,profile_id:pid,route_id:h.routeId,route_name:h.routeName,date:h.date,dist:h.dist,time:h.time,avg_spd:h.avgSpd||0,avg_hr:h.avgHr||0,max_hr:h.maxHr||0,kcal:h.kcal||0,avg_cad:h.avgCad||0,done:!!h.done,inten:h.inten||'off',coins:h.coins||0,xp:h.xp||0,trace:h.trace||null,mode:h.mode||'normal',ev_ok:h.evOk||0,ev_tot:h.evTot||0,pet_id:h.petId||'',pet_xp:h.petXp||0});
+const fromP=(x,o)=>({id:x.id,name:x.name,weight:+x.weight,height:+x.height,photo:x.photo||'',inten:x.inten,sex:x.sex!==undefined?(x.sex||''):((o&&o.sex)||''),game:(x.game!=null&&typeof x.game==='object')?x.game:((o&&o.game)||undefined),frame:x.profile_frame_id!==undefined?(x.profile_frame_id||''):((o&&o.frame)||''),mascot:x.profile_mascot_id!==undefined?(x.profile_mascot_id||''):((o&&o.mascot)||''),owned:[...new Set([...(Array.isArray(x.owned_items)?x.owned_items:[]),...((o&&o.owned)||[])])],frameColor:x.profile_frame_color!==undefined?(x.profile_frame_color||''):((o&&o.frameColor)||''),pets:mergePets(x.mascot_data,o&&o.pets),ach:mergeAch(x.achievements,o&&o.ach),pwh:x.pw_hash||(o&&o.pwh)||'',pws:x.pw_hash?(x.pw_salt||''):((o&&o.pws)||''),bike:x.bike_name!==undefined?(x.bike_name||''):((o&&o.bike)||''),history:[],wlog:(o&&o.wlog)||[]});
 const fromR=x=>({id:x.id,name:x.name,desc:x.descr||'',photo:x.photo||'',dist:+x.dist,elev:x.elev,track:x.track||undefined,demo:x.demo,simElev:x.sim_elev});
-const fromW=x=>({id:x.id,routeId:x.route_id,routeName:x.route_name,date:+x.date,dist:+x.dist,time:+x.time,avgSpd:+x.avg_spd,avgHr:+x.avg_hr,maxHr:+x.max_hr,done:x.done,inten:x.inten,coins:+x.coins||+x.pts||0,xp:+x.xp||0,trace:Array.isArray(x.trace)?x.trace:null,mode:x.mode||'normal',evOk:+x.ev_ok||0,evTot:+x.ev_tot||0,petId:x.pet_id||'',petXp:+x.pet_xp||0});
+const fromW=x=>({id:x.id,routeId:x.route_id,routeName:x.route_name,date:+x.date,dist:+x.dist,time:+x.time,avgSpd:+x.avg_spd,avgHr:+x.avg_hr,maxHr:+x.max_hr,kcal:+x.kcal||0,avgCad:+x.avg_cad||0,done:x.done,inten:x.inten,coins:+x.coins||+x.pts||0,xp:+x.xp||0,trace:Array.isArray(x.trace)?x.trace:null,mode:x.mode||'normal',evOk:+x.ev_ok||0,evTot:+x.ev_tot||0,petId:x.pet_id||'',petXp:+x.pet_xp||0});
 
 /* Fila de gravações (outbox): persiste no localStorage e reenvia quando a conexão voltar */
 let outbox=load('cad_outbox',[]),flushing=false;
@@ -300,7 +331,7 @@ async function flush(){if(!sb||flushing||!outbox.length)return;flushing=true;
   try{while(outbox.length){const o=outbox[0];
       let r=o.t==='up'?await sb.from(o.tb).upsert(o.row):await sb.from(o.tb).delete().eq(o.col,o.val);
       /* banco ainda sem colunas novas (sex, game; pts/coins/xp/trace/mode/ev_*): regrava sem elas, uma por vez, conforme o erro aponta */
-      if(r.error&&o.t==='up'&&(o.tb==='profiles'||o.tb==='workouts')){const row={...o.row},cols=o.tb==='profiles'?['sex','game','profile_frame_id','profile_mascot_id','owned_items','profile_frame_color','mascot_data','achievements']:['coins','xp','trace','mode','pts','ev_ok','ev_tot','pet_id','pet_xp'];
+      if(r.error&&o.t==='up'&&(o.tb==='profiles'||o.tb==='workouts')){const row={...o.row},cols=o.tb==='profiles'?['sex','game','profile_frame_id','profile_mascot_id','owned_items','profile_frame_color','mascot_data','achievements','pw_hash','pw_salt','bike_name']:['coins','xp','trace','mode','pts','ev_ok','ev_tot','pet_id','pet_xp','kcal','avg_cad'];
         for(let i=0;i<12&&r.error;i++){const m=r.error.message||'';const c=cols.find(k=>k in row&&new RegExp('\\b'+k+'\\b','i').test(m));if(!c)break;delete row[c];r=await sb.from(o.tb).upsert(row)}}
       if(r.error){if(r.error.code){console.error(r.error);toast('O Supabase recusou uma gravação: '+r.error.message);outbox.shift();store('cad_outbox',outbox);continue}throw r.error}
       outbox.shift();store('cad_outbox',outbox)}
@@ -332,6 +363,7 @@ async function pull(){
   P.forEach(x=>{if(x.game==null&&by[x.id].game)q({t:'up',tb:'profiles',row:pRow(by[x.id])})});   /* moedas/XP que só existem neste aparelho */
   P.forEach(x=>{if(Array.isArray(x.owned_items)&&by[x.id].owned.length>x.owned_items.length)q({t:'up',tb:'profiles',row:pRow(by[x.id])})});   /* cosméticos comprados só neste aparelho */
   P.forEach(x=>{const b=by[x.id];if(('mascot_data' in x&&JSON.stringify(b.pets)!==JSON.stringify(x.mascot_data||{}))||('achievements' in x&&JSON.stringify(b.ach)!==JSON.stringify(x.achievements||{}))||('profile_frame_color' in x&&(b.frameColor||'')!==(x.profile_frame_color||'')))q({t:'up',tb:'profiles',row:pRow(b)})});   /* XP de mascote, conquistas ou cor do neon só neste aparelho */
+  P.forEach(x=>{if('pw_hash' in x&&!x.pw_hash&&by[x.id].pwh)q({t:'up',tb:'profiles',row:pRow(by[x.id])})});   /* senha criada só neste aparelho */
   S.profiles=P.map(x=>by[x.id]);S.routes=R.map(fromR);
   saveProfiles();saveRoutes();
   const a=A.find(x=>x.profile_id===S.cur);return a?a.data:null}
@@ -383,25 +415,33 @@ function bmiCard(p){const bmi=bmiOf(p),I=bmiInfo(bmi),hm=p.height/100,l=wlog(p),
     ${bmiBar(bmi)}
     <div class="text-sm text-zinc-400">${p.weight} kg · ${p.height} cm · peso ideal: ${(18.5*hm*hm).toFixed(1)}–${(24.9*hm*hm).toFixed(1)} kg</div>
     <div class="flex items-center gap-2 flex-wrap text-xs text-zinc-400"><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#6ac3ff"></i>Abaixo</span><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#34d399"></i>Ideal</span><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#facc15"></i>Acima</span><span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full" style="background:#ef4444"></i>Muito acima</span></div>
-    <button onclick="weightModal()" class="w-full sm:w-auto px-4 py-2.5 rounded-lg ${due?'bg-ember text-ink':'bg-brand text-white'} font-semibold flex items-center justify-center gap-2"><i data-lucide="scale" class="w-4 h-4"></i>${due?'Atualizar peso da semana':'Registrar peso'}</button>
+    ${due?`<form onsubmit="saveWeight(event)" class="flex gap-2 w-full sm:max-w-sm"><input name="pw" type="number" inputmode="decimal" min="20" max="250" step="0.1" placeholder="Novo peso (kg)" oninput="wtChk(this)" autocomplete="off" class="${IN} flex-1 min-w-0"><button disabled class="shrink-0 px-4 py-2 rounded-lg bg-ember text-ink font-semibold flex items-center gap-2 disabled:opacity-40"><i data-lucide="scale" class="w-4 h-4"></i>Atualizar</button></form>`:`<button onclick="weightModal()" class="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="scale" class="w-4 h-4"></i>Registrar peso</button>`}
     <div class="text-xs ${due?'text-ember':'text-zinc-500'}">${due?'Já faz '+d+' dia'+(d===1?'':'s')+' desde a última pesagem. Atualize seu peso semanalmente.':'Última pesagem há '+(d?d+' dia'+(d===1?'':'s'):'menos de 1 dia')+'. Próxima atualização em '+Math.max(1,7-d)+' dia'+(7-d>1?'s':'')+'.'}</div>${sx}</div></div>
    <div class="mt-4 border-t border-line pt-3"><h4 class="font-display text-xl font-bold mb-2">Progresso de peso</h4>${wChart(p)}
    <ul class="max-h-60 overflow-y-auto">${l.slice().reverse().map((e,i,a)=>{const pv=a[i+1],df=pv?e.weight-pv.weight:0,b=bmiInfo(e.weight/(hm*hm));
     return `<li class="flex items-center gap-3 py-1.5 border-b border-line last:border-0 text-sm"><i class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${b.c}"></i><span class="tabular-nums font-semibold">${e.weight.toFixed(1)} kg</span><span class="text-xs ${df>0?'text-ember':df<0?'text-emerald-300':'text-zinc-500'}">${pv?(df>0?'+':'')+df.toFixed(1)+' kg':'início'}</span><span class="ml-auto text-xs text-zinc-400">${new Date(e.date).toLocaleDateString('pt-BR')} · IMC ${(e.weight/(hm*hm)).toFixed(1)}</span></li>`}).join('')}</ul></div></section>`}
+function wtChk(el){const v=+el.value,ok=el.value!==''&&v>=20&&v<=250,b=el.form&&el.form.querySelector('button:not([type=button])');if(b)b.disabled=!ok}
 function weightModal(auto){const p=profile();if(!p)return;
+  if(auto){openModal(`<div class="text-center"><div class="mx-auto w-14 h-14 rounded-full grid place-items-center bg-ember/15 border border-ember/60 text-ember mb-2"><i data-lucide="scale" class="w-7 h-7"></i></div>
+    <h2 class="font-display text-3xl font-bold mb-1">Atualize seu peso</h2><p class="text-sm text-zinc-400 mb-4">Já faz uma semana ou mais desde a última pesagem. Informe seu peso atual para acompanhar seu IMC.</p></div>
+    <form onsubmit="saveWeight(event)" class="space-y-3"><label class="block text-sm">Peso atual (kg)<input name="pw" type="number" inputmode="decimal" min="20" max="250" step="0.1" placeholder="Ex.: 72.5" oninput="wtChk(this)" autocomplete="off" class="${IN} mt-1"></label>
+    <div class="flex flex-col gap-2 pt-1"><button disabled class="w-full py-2.5 rounded-lg bg-brand text-white font-semibold disabled:opacity-40">Confirmar</button><button type="button" onclick="closeModal()" class="w-full py-2.5 rounded-lg border border-line text-zinc-300">Atualizar mais tarde</button></div></form>`);return}
   openModal(`<h2 class="font-display text-3xl font-bold mb-1">${auto?'Hora de pesar!':'Registrar peso'}</h2><p class="text-sm text-zinc-400 mb-4">${auto?'Faz uma semana ou mais desde a última pesagem. Atualize para acompanhar seu IMC.':'O IMC e a silhueta são atualizados na hora.'}</p>
    <form onsubmit="saveWeight(event)" class="space-y-3"><label class="block text-sm">Peso atual (kg)<input name="pw" type="number" min="20" max="250" step="0.1" value="${p.weight}" required class="${IN} mt-1"></label>
    <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">${auto?'Depois':'Cancelar'}</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar</button></div></form>`)}
 function saveWeight(e){e.preventDefault();const p=profile(),w=Math.round(+e.target.elements.pw.value*10)/10;if(!(w>=20&&w<=250))return;
   const en={id:uid(),date:Date.now(),weight:w};wlog(p).push(en);p.weight=w;saveProfiles();
   q({t:'up',tb:'profiles',row:pRow(p)});q({t:'up',tb:'weight_log',row:wlRow(p.id,en)});closeModal();render();toast('Peso salvo · '+bmiInfo(bmiOf(p)).n);achRun(p)}
-function weightPrompt(){const p=profile();if(!p||S.wP===p.id||S.wo.running||S.wo.dist>0||$('#modal').innerHTML||!wDue(p))return;S.wP=p.id;weightModal(true)}
+function weightPrompt(n=0){const p=profile();if(!p||S.wP===p.id||!wDue(p))return;
+  if(S.wo.running||S.wo.dist>0||$('#modal').innerHTML){if(n<120)setTimeout(()=>weightPrompt(n+1),800);return}   /* espera outros pop-ups (senha, apelido) fecharem */
+  S.wP=p.id;weightModal(true)}
 function setSex(v){const p=profile();p.sex=v;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});render()}
 const sexField=v=>`<div class="text-sm">Sexo<div class="grid grid-cols-2 gap-2 mt-1">${[['m','Homem'],['f','Mulher']].map(([k,l])=>`<label class="cursor-pointer"><input type="radio" name="sx" value="${k}" ${v===k?'checked':''} required class="peer sr-only"><span class="block text-center py-2 rounded-lg border border-line peer-checked:border-neon peer-checked:text-neon peer-checked:bg-neon/10 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-neon">${l}</span></label>`).join('')}</div></div>`;
 function editProfileModal(){const p=profile();openModal(`<h2 class="font-display text-3xl font-bold mb-4">Editar perfil</h2>
   <form onsubmit="saveEdit(event)" class="space-y-3"><label class="block text-sm">Nome<input name="pn" required maxlength="30" value="${esc(p.name)}" class="${IN} mt-1"></label>
   ${sexField(p.sex)}<label class="block text-sm">Altura (cm)<input name="ph" type="number" min="100" max="250" value="${p.height}" required class="${IN} mt-1"></label>
   <p class="text-xs text-zinc-500">Para mudar o peso, use "Registrar peso" (mantém o histórico).</p>
+  ${isAdmin()?'':`<div class="flex items-center justify-between gap-3 rounded-xl border border-line p-3"><div class="min-w-0"><div class="text-sm font-semibold">Senha</div><div class="text-xs text-zinc-500">${p.pwh?'Protege o acesso ao seu perfil':'Este perfil ainda não tem senha'}</div></div><button type="button" onclick="pwChangeModal()" class="shrink-0 px-3 py-2 rounded-lg border border-line text-sm text-zinc-300 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="key-round" class="w-4 h-4"></i>${p.pwh?'Alterar senha':'Criar senha'}</button></div>`}
   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar</button></div></form>`)}
 function saveEdit(e){e.preventDefault();const f=e.target.elements,p=profile();p.name=f.pn.value.trim();p.sex=f.sx.value;p.height=+f.ph.value;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();render()}
 
@@ -501,21 +541,125 @@ function histDetail(id){const p=profile(),x=p&&p.history.find(h=>h.id===id);if(!
   const st=x.mode==='horda'?(x.done?'Escapou da horda':'Alcançado pela horda'):x.done?'Concluída':'Parcial',gain=(x.coins||x.pts||0);
   const ini=x.date-(x.time||0)*1000;
   openCenter(`<div class="flex items-start justify-between gap-3 mb-1"><div class="min-w-0"><h2 class="font-display text-3xl font-bold leading-tight break-words">${esc(x.routeName)}</h2><div class="text-sm ${x.done?'text-neon':'text-zinc-400'} font-semibold">${st}</div></div><button onclick="closeModal()" aria-label="Fechar" class="shrink-0 w-9 h-9 grid place-items-center rounded-lg border border-line text-zinc-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button></div>
-   <div class="mt-2">${row('Data',new Date(x.date).toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}))}${row('Horário',hhmm(ini)+' – '+hhmm(x.date))}${row('Distância',x.dist.toFixed(2)+' km')}${row('Tempo',fmt(x.time))}${row('Velocidade média',x.avgSpd.toFixed(1)+' km/h')}${x.avgHr?row('Freq. cardíaca média',x.avgHr+' bpm'):''}${x.maxHr?row('Freq. cardíaca máxima',x.maxHr+' bpm'):''}${row('Inclinação',INT[x.inten||'off'].n)}${row('Modo',x.mode==='horda'?'Fuga da Horda':'Normal')}${gain?row('Engrenagens ganhas','<span class="text-white">'+gain.toLocaleString('pt-BR')+'</span>'):''}${x.xp?row('XP do corredor',x.xp.toLocaleString('pt-BR')+' XP'):''}${x.petXp&&MASCOTS[x.petId]?row('XP do mascote ('+esc(MASCOTS[x.petId].name)+')',x.petXp.toLocaleString('pt-BR')+' XP'):''}${x.evTot?row('Eventos concluídos',(x.evOk||0)+' de '+x.evTot):''}</div>
+   <div class="mt-2">${row('Data',new Date(x.date).toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}))}${row('Horário',hhmm(ini)+' – '+hhmm(x.date))}${row('Distância',x.dist.toFixed(2)+' km')}${row('Tempo',fmt(x.time))}${row('Calorias','<span class="text-neon">'+kcalOf(x,p).toLocaleString('pt-BR')+' kcal</span>')}${row('Velocidade média',x.avgSpd.toFixed(1)+' km/h')}${x.avgHr?row('Freq. cardíaca média',x.avgHr+' bpm'):''}${x.maxHr?row('Freq. cardíaca máxima',x.maxHr+' bpm'):''}${row('Inclinação',INT[x.inten||'off'].n)}${row('Modo',x.mode==='horda'?'Fuga da Horda':'Normal')}${gain?row('Engrenagens ganhas','<span class="text-white">'+gain.toLocaleString('pt-BR')+'</span>'):''}${x.xp?row('XP do corredor',x.xp.toLocaleString('pt-BR')+' XP'):''}${x.petXp&&MASCOTS[x.petId]?row('XP do mascote ('+esc(MASCOTS[x.petId].name)+')',x.petXp.toLocaleString('pt-BR')+' XP'):''}${x.evTot?row('Eventos concluídos',(x.evOk||0)+' de '+x.evTot):''}</div>
    <p class="text-[11px] text-zinc-500 mt-3">Ao excluir, o treino sai da lista, mas seu XP, engrenagens, quilometragem, tempo total e nº de treinos continuam contabilizados.</p>
    <div class="flex gap-2 mt-4"><button onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line text-zinc-300 font-semibold">Fechar</button><button onclick="histDel('${x.id}')" class="flex-1 py-2.5 rounded-lg bg-red-600 text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i>Excluir treino</button></div>`)}
 function histDel(id){const p=profile(),i=p?p.history.findIndex(h=>h.id===id):-1;if(i<0)return;
   if(!confirm('Excluir este treino do histórico?\n\nSeu XP, engrenagens, quilometragem, tempo total e número de treinos continuam preservados.'))return;
   const x=p.history[i],g=G(p),d=g.del,now=Date.now();
   d.n+=1;d.km+=+x.dist||0;d.t+=+x.time||0;d.wk.push([x.date,+x.dist||0]);d.wk=d.wk.filter(a=>a[0]>=now-6048e5);
+  d.ck=(d.ck||[]).concat([[x.date,kcalOf(x,p)]]).filter(a=>a[0]>=now-2592e6);   /* kcal dos últimos 30 dias, mesmo após excluir */
   p.history.splice(i,1);
   saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});q({t:'del',tb:'workouts',col:'id',val:id});
   closeModal();toast('Treino excluído');render()}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 
+/* ---------- Senha de perfil, login e perfil público (visitante) ----------
+   Cada perfil guarda p.pwh (hash) e p.pws (salt) — nunca a senha em texto. Vão para o Supabase em profiles.pw_hash / pw_salt.
+   Perfis antigos (sem senha) entram uma vez sem senha; ao logar, um pop-up obriga a criar a senha (selectProfile → pwSetupModal).
+   Quem não tem a senha pode abrir o "perfil público" (visitorView), que NÃO mostra peso, altura, sexo, IMC, histórico de pesagens,
+   calorias, engrenagens nem o histórico detalhado de treinos. Se criar novas informações no perfil, decida se entram em visitorView.
+   Aviso: como o app roda 100% no navegador com o banco aberto, isto impede o uso casual do perfil alheio, mas não é segurança forte. */
+const SHA=(()=>{const K=[],H0=[];
+  for(let p=2,c=0;c<64;p++){let pr=true;for(let d=2;d*d<=p;d++)if(p%d===0){pr=false;break}if(!pr)continue;
+    if(c<8)H0[c]=(Math.pow(p,.5)%1)*4294967296|0;K[c]=(Math.pow(p,1/3)%1)*4294967296|0;c++}
+  const rr=(v,a)=>(v>>>a)|(v<<(32-a)),w=new Int32Array(64),enc=new TextEncoder();
+  return s=>{const bt=enc.encode(s),l=bt.length,n=((l+9+63)>>6)<<6,m=new Uint8Array(n);m.set(bt);m[l]=128;
+    const dv=new DataView(m.buffer);dv.setUint32(n-8,Math.floor(l*8/4294967296));dv.setUint32(n-4,(l*8)>>>0);
+    const H=H0.slice();
+    for(let o=0;o<n;o+=64){
+      for(let i=0;i<16;i++)w[i]=dv.getInt32(o+i*4);
+      for(let i=16;i<64;i++){const x=w[i-15],y=w[i-2];w[i]=(w[i-16]+(rr(x,7)^rr(x,18)^(x>>>3))+w[i-7]+(rr(y,17)^rr(y,19)^(y>>>10)))|0}
+      let [a,b,c,d,e,f,g,h]=H;
+      for(let i=0;i<64;i++){
+        const t1=(h+(rr(e,6)^rr(e,11)^rr(e,25))+((e&f)^(~e&g))+K[i]+w[i])|0,t2=((rr(a,2)^rr(a,13)^rr(a,22))+((a&b)^(a&c)^(b&c)))|0;
+        h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0}
+      H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0}
+    return H.map(x=>(x>>>0).toString(16).padStart(8,'0')).join('')}})();
+const pwDerive=(pw,salt)=>{let h=SHA(salt+':'+pw);for(let i=0;i<3000;i++)h=SHA(h+salt+pw);return h};
+const pwSalt=()=>{try{return Array.from(crypto.getRandomValues(new Uint8Array(12)),x=>x.toString(16).padStart(2,'0')).join('')}catch{return uid()+uid()+Date.now().toString(36)}};
+const pwSet=(p,pw)=>{p.pws=pwSalt();p.pwh=pwDerive(pw,p.pws)};
+const pwCheck=(p,pw)=>!!(p&&p.pwh&&p.pws&&pwDerive(pw,p.pws)===p.pwh);
+const pwErr=(a,b)=>a.length<4?'A senha precisa ter pelo menos 4 caracteres.':a!==b?'As senhas não coincidem.':'';
+const pwMsg=t=>{const e=$('#pwErr');if(e)e.textContent=t||''};
+/* bloqueio de tentativas: a partir da 5ª senha errada seguida, espera 30 s (e +30 s a cada nova falha, até 4 min) */
+const PWF=()=>load('cad_pwfail',{});
+function pwLeft(id){const f=PWF()[id];return f&&f.until>Date.now()?Math.ceil((f.until-Date.now())/1000):0}
+function pwFail(id){const m=PWF(),f=m[id]||{n:0,until:0};f.n++;if(f.n>=5)f.until=Date.now()+Math.min(f.n-4,8)*30000;m[id]=f;store('cad_pwfail',m)}
+function pwOk(id){const m=PWF();if(m[id]){delete m[id];store('cad_pwfail',m)}}
+const pwField=(name,label,ac='current-password')=>`<label class="block text-sm">${label}<div class="relative mt-1"><input name="${name}" type="password" required minlength="4" maxlength="40" autocomplete="${ac}" class="${IN}" style="padding-right:2.5rem"><button type="button" onclick="togglePw(this)" aria-label="Mostrar ou ocultar senha" class="absolute right-1 top-1/2 -translate-y-1/2 w-8 h-8 grid place-items-center text-zinc-400 hover:text-neon"><i data-lucide="eye" class="w-4 h-4"></i></button></div></label>`;
+const pwErrBox=`<p id="pwErr" class="text-sm text-red-400 min-h-[1.25rem]" role="alert" aria-live="polite"></p>`;
+function togglePw(b){const i=b.parentElement.querySelector('input'),show=i.type==='password';i.type=show?'text':'password';
+  b.innerHTML=`<i data-lucide="${show?'eye-off':'eye'}" class="w-4 h-4"></i>`;lucide.createIcons()}
+const focusPw=n=>setTimeout(()=>{const i=document.querySelector('#modal input[name="'+n+'"]');if(i)i.focus()},60);
+
+/* Entrada: perfil com senha → pede a senha; perfil antigo sem senha → entra e é obrigado a criar uma logo em seguida */
+function loginProfile(id){const p=S.profiles.find(x=>x.id===id);if(!p)return;
+  if(!p.pwh){selectProfile(id);return}
+  loginModal(id)}
+function loginModal(id){const p=S.profiles.find(x=>x.id===id);if(!p)return;
+  openModal(`<div class="flex items-center gap-3 mb-4">${avatar(p,48)}<div class="min-w-0"><h2 class="font-display text-3xl font-bold leading-tight truncate">${esc(p.name)}</h2><div class="text-sm text-zinc-400">Digite a senha para entrar</div></div></div>
+  <form onsubmit="loginSubmit(event,'${p.id}')" class="space-y-3">${pwField('pwd','Senha')}${pwErrBox}
+  <button class="w-full py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-4 h-4"></i>Entrar</button>
+  <div class="flex gap-3"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button>
+  <button type="button" onclick="visitorView('${p.id}')" class="flex-1 py-2.5 rounded-lg border border-line text-zinc-300 hover:text-neon hover:border-neon flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i>Ver como visitante</button></div></form>`);
+  focusPw('pwd')}
+function loginSubmit(e,id){e.preventDefault();const p=S.profiles.find(x=>x.id===id);if(!p)return;
+  const w=pwLeft(id);if(w){pwMsg('Muitas tentativas. Aguarde '+w+' s para tentar de novo.');return}
+  const inp=e.target.elements.pwd;
+  if(pwCheck(p,inp.value)){pwOk(id);closeModal();selectProfile(id);return}
+  pwFail(id);const w2=pwLeft(id);pwMsg(w2?'Senha incorreta. Aguarde '+w2+' s para tentar de novo.':'Senha incorreta.');inp.value='';inp.focus()}
+
+/* Pop-up de criação de senha (perfis antigos, logo após o primeiro login sem senha). Só fecha criando a senha ou saindo do perfil. */
+function pwSetupModal(){const p=profile();if(!p||isAdmin()||p.pwh)return;
+  openModal(`<div class="flex items-center gap-2 text-neon mb-1"><i data-lucide="shield-check" class="w-6 h-6"></i><h2 class="font-display text-3xl font-bold">Crie uma senha</h2></div>
+  <p class="text-sm text-zinc-400 mb-4">Seu perfil ainda não tem senha. Defina uma agora: a partir do próximo login ela será exigida. Quem não souber a senha só consegue ver o seu perfil público.</p>
+  <form onsubmit="pwSetupSave(event)" class="space-y-3">${pwField('pw1','Nova senha','new-password')}${pwField('pw2','Confirmar senha','new-password')}${pwErrBox}
+  <div class="flex gap-3 pt-1"><button type="button" onclick="pwSetupExit()" class="flex-1 py-2.5 rounded-lg border border-line text-zinc-300">Sair do perfil</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar senha</button></div></form>`);
+  modalLock=true;focusPw('pw1')}
+function pwSetupSave(e){e.preventDefault();const f=e.target.elements,p=profile();if(!p||isAdmin())return;
+  const er=pwErr(f.pw1.value,f.pw2.value);if(er){pwMsg(er);return}
+  pwSet(p,f.pw1.value);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal(true);toast('Senha criada! Ela será pedida no próximo login');setTimeout(weightPrompt,400)}
+function pwSetupExit(){closeModal(true);switchProfile()}
+
+/* Alterar senha (a partir de "Editar perfil") */
+function pwChangeModal(){const p=profile();if(!p||isAdmin())return;
+  openModal(`<h2 class="font-display text-3xl font-bold mb-4">Alterar senha</h2>
+  <form onsubmit="pwChangeSave(event)" class="space-y-3">${p.pwh?pwField('pw0','Senha atual'):''}${pwField('pw1','Nova senha','new-password')}${pwField('pw2','Confirmar nova senha','new-password')}${pwErrBox}
+  <div class="flex gap-3 pt-1"><button type="button" onclick="editProfileModal()" class="flex-1 py-2.5 rounded-lg border border-line">Voltar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar senha</button></div></form>`);
+  focusPw(p.pwh?'pw0':'pw1')}
+function pwChangeSave(e){e.preventDefault();const f=e.target.elements,p=profile();if(!p||isAdmin())return;
+  if(p.pwh){const w=pwLeft(p.id);if(w){pwMsg('Muitas tentativas. Aguarde '+w+' s.');return}
+    if(!pwCheck(p,f.pw0.value)){pwFail(p.id);pwMsg('A senha atual está incorreta.');f.pw0.select();return}pwOk(p.id)}
+  const er=pwErr(f.pw1.value,f.pw2.value);if(er){pwMsg(er);return}
+  if(p.pwh&&f.pw1.value===f.pw0.value){pwMsg('A nova senha deve ser diferente da atual.');return}
+  pwSet(p,f.pw1.value);saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal();toast('Senha alterada')}
+
+/* Perfil público (modo visitante): só o que é seguro mostrar a qualquer pessoa. Sem peso, altura, sexo, IMC, pesagens, calorias,
+   engrenagens ou histórico detalhado de treinos. Os melhores tempos já aparecem no ranking, então também são públicos. */
+function visitorView(id,mode){const p=S.profiles.find(x=>x.id===id);if(!p)return;
+  const g=G(p),I=lvInfo(g.xp),h=p.history||[],d=g.del,km=h.reduce((a,x)=>a+x.dist,0)+d.km,tm=h.reduce((a,x)=>a+x.time,0)+d.t,n=h.length+d.n,
+    m=(mode==='all'||INT[mode])?mode:'all',bests=S.routes.map(r=>({r,t:userBest(r,p,m)})).filter(x=>x.t),
+    A=ACH(p),pins=A.pin.map(i=>BADGES.find(b=>b.id===i)).filter(Boolean),got=BADGES.filter(b=>A.u[b.id]).length,pet=MASCOTS[p.mascot],
+    st=(l,v)=>`<div class="rounded-xl bg-ink border border-line p-3"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-3xl font-bold text-neon">${v}</div></div>`,
+    slot=i=>{const b=pins[i];return b?`<div class="flex items-center gap-2 min-w-0 rounded-xl bg-ink border border-line pl-1.5 pr-3 py-1.5">${medal(b,true,40)}<div class="min-w-0"><div class="text-sm font-semibold leading-tight truncate">${esc(b.n)}</div><div class="text-[10px]" style="color:${BTIER[b.t].c}">${BTIER[b.t].n}</div></div></div>`
+      :`<div class="flex items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-xs text-zinc-500"><i data-lucide="pin" class="w-4 h-4"></i>Slot livre</div>`};
+  openModal(`<div class="flex items-center justify-between gap-3 mb-4"><span class="inline-flex items-center gap-1.5 text-xs font-semibold text-neon bg-neon/10 border border-neon/40 rounded-full px-2.5 py-1"><i data-lucide="eye" class="w-3.5 h-3.5"></i>Modo visitante</span>
+   <button onclick="closeModal()" aria-label="Fechar" class="shrink-0 w-9 h-9 grid place-items-center rounded-lg border border-line text-zinc-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button></div>
+   <div class="flex items-center gap-4 flex-wrap">${profBlock(p,72)}<div class="flex-1 min-w-[160px]"><div class="font-display text-4xl font-bold break-words">${esc(p.name)}</div>
+    <div class="text-sm text-emerald-300 mt-0.5">Nível ${I.l} · ${I.cur.toLocaleString('pt-BR')}/${I.need.toLocaleString('pt-BR')} XP</div>
+    ${pet?`<div class="text-sm text-zinc-400 mt-0.5">Mascote: ${pet.icon} ${esc(pet.name)} · nível ${petInfo(petXpOf(p,pet.id)).l}</div>`:''}</div></div>
+   <div class="mt-4"><div class="flex items-center justify-between mb-1.5"><span class="text-xs text-zinc-400 flex items-center gap-1.5"><i data-lucide="award" class="w-4 h-4 text-neon"></i>Medalhas em destaque</span><span class="text-xs text-zinc-500">${got}/${BADGES.length} desbloqueadas</span></div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">${[0,1,2].map(slot).join('')}</div></div>
+   <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">${st('Quilometragem',km.toFixed(1)+' km')}${st('Tempo total',fmt(tm))}${st('Treinos',n)}${st('Rotas com recorde',bests.length)}</div>
+   <section class="mt-4"><h3 class="font-display text-2xl font-bold mb-0.5">Melhores tempos</h3><div class="flex items-center gap-2 mb-2"><label for="vMode" class="text-xs text-zinc-500 shrink-0">Modo de inclinação</label>
+    <select id="vMode" onchange="visitorView('${p.id}',this.value)" aria-label="Filtrar melhores tempos por modo de inclinação" class="${IN} !w-auto !py-1 flex-1 sm:flex-none">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${m===k?'selected':''}>${v.n}</option>`).join('')}<option value="all" ${m==='all'?'selected':''}>Todos os modos</option></select></div>
+    ${bests.length?bests.map(x=>`<div class="flex justify-between gap-3 py-2 border-b border-line last:border-0"><span class="truncate">${esc(x.r.name)}</span><span class="tabular-nums text-neon">${fmt(x.t)}</span></div>`).join(''):'<p class="text-sm text-zinc-400">Nenhum recorde neste modo ainda.</p>'}</section>
+   <div class="flex gap-3 mt-4"><button onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line text-zinc-300 font-semibold">Fechar</button>${S.cur?'':`<button onclick="closeModal();loginProfile('${p.id}')" class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-4 h-4"></i>Entrar neste perfil</button>`}</div>`,'max-w-2xl')}
+
 /* ---------- Perfis ---------- */
 function home(){
-  const list=S.profiles.map(p=>`<button onclick="selectProfile('${p.id}')" class="w-full flex items-center gap-4 p-4 rounded-xl bg-panel border border-line hover:border-neon text-left">${avatar(p,52)}<div class="flex-1 min-w-0"><div class="font-display text-2xl font-bold truncate">${esc(p.name)}</div><div class="text-sm text-zinc-400">${p.weight} kg · ${p.height} cm</div></div><i data-lucide="chevron-right" class="text-zinc-500"></i></button>`).join('');
+  const list=S.profiles.map(p=>`<div class="flex items-stretch gap-2"><button onclick="loginProfile('${p.id}')" class="flex-1 min-w-0 flex items-center gap-4 p-4 rounded-xl bg-panel border border-line hover:border-neon text-left">${avatar(p,52)}<div class="flex-1 min-w-0"><div class="font-display text-2xl font-bold truncate">${esc(p.name)}</div><div class="text-sm text-zinc-400 flex items-center gap-1.5">${p.pwh?'<i data-lucide="lock" class="w-3.5 h-3.5 shrink-0"></i>':''}Nível ${lvInfo(G(p).xp).l}</div></div><i data-lucide="chevron-right" class="text-zinc-500"></i></button><button onclick="visitorView('${p.id}')" title="Ver perfil público (visitante)" aria-label="Ver perfil público de ${esc(p.name)}" class="shrink-0 w-14 rounded-xl bg-panel border border-line hover:border-neon text-zinc-400 hover:text-neon grid place-items-center"><i data-lucide="eye" class="w-5 h-5"></i></button></div>`).join('')+(S.profiles.length?'<p class="text-xs text-zinc-500 pt-1 flex items-center gap-1.5"><i data-lucide="eye" class="w-3.5 h-3.5 shrink-0"></i>Toque no olho para ver o perfil público de alguém, sem senha.</p>':'');
   return `<main class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-md">
   <div class="flex items-center gap-2 mb-1 text-neon"><i data-lucide="bike" class="w-7 h-7"></i><span class="font-display text-4xl font-extrabold">Andou!</span></div>
   <p class="text-zinc-400 mb-6">Quem vai pedalar hoje?</p>
@@ -540,11 +684,25 @@ function profileModal(){openModal(`<h2 class="font-display text-3xl font-bold mb
   <div class="grid grid-cols-2 gap-3"><label class="block text-sm">Peso (kg)<input name="pw" type="number" min="20" max="250" step="0.1" required class="${IN} mt-1"></label>
   <label class="block text-sm">Altura (cm)<input name="ph" type="number" min="100" max="250" required class="${IN} mt-1"></label></div>
   ${sexField('')}
+  <label class="block text-sm">Apelido da bicicleta<input name="pb" required maxlength="24" autocomplete="off" placeholder="Ex.: Girassol" class="${IN} mt-1"></label>
+  ${pwField('pw1','Senha (mín. 4 caracteres)','new-password')}${pwField('pw2','Confirmar senha','new-password')}${pwErrBox}
   ${photoField()}
   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar perfil</button></div></form>`)}
-function saveProfile(e){e.preventDefault();const f=e.target.elements;
-  const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:photoOf(f),inten:S.inten,sex:f.sx.value,history:[],wlog:[]};
+function saveProfile(e){e.preventDefault();const f=e.target.elements,er=pwErr(f.pw1.value,f.pw2.value);if(er){pwMsg(er);return}
+  const p={id:uid(),name:f.pn.value.trim(),weight:+f.pw.value,height:+f.ph.value,photo:photoOf(f),inten:S.inten,sex:f.sx.value,bike:f.pb.value.trim(),history:[],wlog:[]};pwSet(p,f.pw1.value);
   S.profiles.push(p);q({t:'up',tb:'profiles',row:pRow(p)});wlog(p);saveProfiles();closeModal();selectProfile(p.id)}
+/* apelido da bicicleta (por perfil): aparece nos sensores como "<apelido> (FTMS)". Perfis antigos recebem o pop-up no primeiro login. */
+const bikeName=()=>{const p=profile();return(p&&p.bike)||'Minha bike'};
+function bikeModal(first){const p=profile();if(!p)return;
+  openModal(`<h2 class="font-display text-3xl font-bold mb-1">Apelido da bicicleta</h2><p class="text-sm text-zinc-400 mb-4">Que apelido você quer dar à sua bike? Ele aparece na área de sensores, sempre seguido de "(FTMS)".</p>
+   <form onsubmit="saveBike(event)" class="space-y-3"><label class="block text-sm">Apelido<input name="bk" required maxlength="24" value="${esc(p.bike||'')}" placeholder="Ex.: Girassol" autocomplete="off" class="${IN} mt-1"></label>
+   <div class="flex gap-3 pt-2">${first?'':`<button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button>`}<button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar</button></div></form>`);
+  if(first)modalLock=true}
+function saveBike(e){e.preventDefault();const p=profile(),v=e.target.elements.bk.value.trim().slice(0,24);if(!p||!v)return;
+  p.bike=v;saveProfiles();q({t:'up',tb:'profiles',row:pRow(p)});closeModal(true);render();toast('Bike: '+v+' (FTMS)');setTimeout(weightPrompt,300)}
+function bikePrompt(n=0){const p=profile();if(!p||isAdmin()||p.bike)return;
+  if(S.wo.running||$('#modal').innerHTML){if(n<120)setTimeout(()=>bikePrompt(n+1),800);return}
+  bikeModal(true)}
 function photoModal(){openModal(`<h2 class="font-display text-3xl font-bold mb-4">Alterar foto</h2>
   <form onsubmit="savePhoto(event)" class="space-y-3">${photoField()}
   <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Salvar foto</button></div></form>`)}
@@ -552,9 +710,9 @@ function savePhoto(e){e.preventDefault();const p=profile();p.photo=photoOf(e.tar
 function selectProfile(id){S.cur=id;store('cad_cur',id);applyInten();S.tab='home';
   /* retoma um treino interrompido só para o perfil que estava treinando (na primeira seleção após abrir o app) */
   if(bootRemote!==undefined){const rm=bootRemote;bootRemote=undefined;restoreWo(rm)}
-  profInit(profile());render();setTimeout(weightPrompt,300)}
-function switchProfile(){if(S.wo.running||S.wo.dist>0){if(!confirm('Há um treino em andamento. Sair e descartá-lo?'))return;resetWo()}const adm=isAdmin();S.cur=null;if(adm)ADMIN=null;else store('cad_cur',null);render()}
-function deleteProfile(){if(!confirm('Excluir este perfil e todo o histórico?'))return;resetWo();q({t:'del',tb:'profiles',col:'id',val:S.cur});S.profiles=S.profiles.filter(p=>p.id!==S.cur);saveProfiles();switchProfile()}
+  profInit(profile());render();if(!profile().pwh)setTimeout(pwSetupModal,150);setTimeout(bikePrompt,250);setTimeout(weightPrompt,300)}
+function switchProfile(){if(S.wo.running||S.wo.dist>0){if(!confirm('Há um treino em andamento. Sair e descartá-lo?'))return;resetWo()}mrLeave(true);S.sim.on=false;const adm=isAdmin();S.cur=null;if(adm)ADMIN=null;else store('cad_cur',null);render()}
+function deleteProfile(){if(!confirm('Excluir este perfil e todo o histórico?'))return;resetWo();mrLeave(true);q({t:'del',tb:'profiles',col:'id',val:S.cur});S.profiles=S.profiles.filter(p=>p.id!==S.cur);saveProfiles();switchProfile()}
 
 /* ---------- Perfil Admin (oculto): entrada, painel de testes e pop-up de vibração ---------- */
 const ADM={coins:1000,xp:500};   /* quantidade que cada botão concede */
@@ -608,11 +766,21 @@ const MOTIV=[
  'Hoje não precisa ser perfeito, precisa ser feito.',
  'Seu recorde está esperando por você na próxima pista.',
  'Pedale pelo prazer de se mover. A performance é consequência.'];
-S.msgI=0;
+S.msgI=0;S.msg={t0:Date.now()};
 const weekKm=p=>p.history.filter(h=>h.date>=Date.now()-6048e5).reduce((a,h)=>a+h.dist,0)+G(p).del.wk.filter(a=>a[0]>=Date.now()-6048e5).reduce((a,x)=>a+x[1],0);
+/* calorias: semana (7 dias), mês (30 dias) e última sessão; inclui treinos já excluídos (G().del.ck) */
+const kcSum=(p,days)=>{const t=Date.now()-days*864e5;return p.history.filter(h=>h.date>=t).reduce((a,h)=>a+kcalOf(h,p),0)+(G(p).del.ck||[]).filter(a=>a[0]>=t).reduce((a,x)=>a+x[1],0)};
+const calBox=(p,bg='bg-panel')=>{const l=p.history[0],cell=(t,v,sub)=>`<div class="min-w-0 text-center"><div class="text-[11px] text-zinc-400 truncate">${t}</div><div class="font-display text-2xl lg:text-3xl font-bold text-neon leading-tight tabular-nums">${Math.round(v).toLocaleString('pt-BR')}<span class="text-[11px] font-sans font-normal text-zinc-500 ml-0.5">kcal</span></div>${sub?`<div class="text-[10px] text-zinc-500 truncate leading-none">${sub}</div>`:''}</div>`;
+  return `<section class="rounded-xl ${bg} border border-line px-3 py-2 lg:py-3 shrink-0"><div class="flex items-center gap-1.5 text-xs text-zinc-300 font-semibold mb-1"><i data-lucide="flame" class="w-4 h-4 text-neon"></i>Calorias</div><div class="grid grid-cols-3 gap-2 divide-x divide-line">${cell('Última sessão',l?kcalOf(l,p):0,l?new Date(l.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'sem treinos')}${cell('Semana',kcSum(p,7),'7 dias')}${cell('Mês',kcSum(p,30),'30 dias')}</div></section>`};
 function motivMsg(p){if(!p.history.length&&!G(p).del.n&&!S.msgI)return 'Sua primeira pedalada começa com um clique. Escolha uma pista e vamos nessa!';
   return MOTIV[(Math.floor(Date.now()/864e5)+hash(p.id)+S.msgI)%MOTIV.length]}
-function nextMsg(){S.msgI++;render()}
+/* mensagem do dia cíclica: troca sozinha a cada MSG_MS (o círculo mostra o tempo) e também pelo botão "Outra"; atualiza só o texto, sem redesenhar a tela */
+const MSG_MS=15000;let msgT;
+function msgSched(){clearTimeout(msgT);if(!S.msg||!$('#msgTxt'))return;msgT=setTimeout(msgGo,Math.max(50,MSG_MS-(Date.now()-S.msg.t0)))}
+function msgGo(){const e=$('#msgTxt'),p=profile();if(!e||!p)return;S.msgI++;S.msg.t0=Date.now();
+  e.textContent=motivMsg(p);e.style.animation='none';void e.offsetWidth;e.style.animation='bodyin .5s ease-out';
+  const g=$('#msgRingBox');if(g)g.innerHTML=recRing(0,MSG_MS);msgSched()}
+function nextMsg(){msgGo()}
 /* Recomenda a pista menos concluída; empate: a que está há mais tempo sem treino; depois a mais curta */
 function recommend(){const p=profile();if(!p||!S.routes.length)return null;
   const info=S.routes.map(r=>{const hs=p.history.filter(h=>h.routeId===r.id);
@@ -627,7 +795,7 @@ function recInit(){const ids=S.routes.map(r=>r.id);
 function recWhy(r){const hs=profile().history.filter(h=>h.routeId===r.id),dn=hs.filter(h=>h.done).length;
   return dn?'Concluída '+dn+'x · tente melhorar seu tempo':(hs.length?'Você começou, mas ainda não concluiu':'Pista nova para você')}
 const recTxt=r=>`<div class="font-display text-2xl font-bold truncate">${esc(r.name)}</div><div class="text-xs text-zinc-400 truncate">${r.dist.toFixed(1)} km · +${elevStats(r.elev).gain} m · ${userBest(r)?'Seu recorde '+fmt(userBest(r)):'Sem recorde'}</div><div class="text-xs text-zinc-500 truncate">${recWhy(r)}</div>`;
-const recRing=off=>`<svg viewBox="0 0 40 40" class="w-5 h-5 sm:w-9 sm:h-9 -rotate-90" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(156,163,175,.45)" stroke-width="4"/><circle cx="20" cy="20" r="16" fill="none" stroke="#fff" stroke-width="4" pathLength="100" stroke-dasharray="100" style="stroke-dashoffset:100;animation:recfill ${REC_MS}ms linear forwards;animation-delay:-${off}ms"/></svg>`;
+const recRing=(off,ms=REC_MS)=>`<svg viewBox="0 0 40 40" class="w-5 h-5 sm:w-9 sm:h-9 -rotate-90" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(156,163,175,.45)" stroke-width="4"/><circle cx="20" cy="20" r="16" fill="none" stroke="#fff" stroke-width="4" pathLength="100" stroke-dasharray="100" style="stroke-dashoffset:100;animation:recfill ${ms}ms linear forwards;animation-delay:-${off}ms"/></svg>`;
 function recSched(){clearTimeout(recT);const R=S.rec;if(!R||R.order.length<2||!$('#recTrack'))return;recT=setTimeout(()=>recGo(1),Math.max(50,REC_MS-(Date.now()-R.t0)))}
 function recGo(d){const R=S.rec,t=$('#recTrack');if(!R||!t)return;const n=R.order.length;R.i=(R.i+d+n)%n;R.t0=Date.now();
   const r=S.routes.find(x=>x.id===R.order[R.i]),vp=t.parentElement,nw=document.createElement('div');
@@ -654,16 +822,17 @@ function homeTab(){
    :`<section class="rounded-2xl border border-dashed border-line p-4 text-center text-zinc-400 text-sm lg:flex-1 grid place-items-center">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</section>`;
   return `<div class="hm-scroll max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-3 lg:h-full">
    <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-3 lg:min-h-0">
-    <section onclick="setTab('perfil')" onkeydown="if(event.key==='Enter')setTab('perfil')" role="button" tabindex="0" aria-label="Abrir perfil" class="rounded-2xl bg-panel border border-line p-4 min-h-[7.25rem] flex items-center gap-4 shrink-0 cursor-pointer active:opacity-80">${profBlock(p,52)}
-     <div class="min-w-0 flex-1"><div class="font-display text-3xl font-bold truncate leading-none">Olá, ${esc(p.name)}!</div>
-      <div class="text-xs text-zinc-400 truncate mt-1">${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)} · Inclinação: ${INT[S.inten].n}</div>
-      <div class="text-xs text-emerald-300 truncate">Nível ${lvInfo(G(p).xp).l} · ${G(p).coins.toLocaleString('pt-BR')} engrenagens · ${lvInfo(G(p).xp).cur.toLocaleString('pt-BR')}/${lvInfo(G(p).xp).need.toLocaleString('pt-BR')} XP</div>
-      <div class="text-xs text-zinc-500 truncate">${last?'Último treino: '+new Date(last.date).toLocaleDateString('pt-BR')+' · '+hhmm(last.date-last.time*1000)+' - '+hhmm(last.date)+' · '+esc(last.routeName)+' · '+last.dist.toFixed(1)+' km':'Nenhum treino registrado ainda'}</div></div></section>
+    <section onclick="setTab('perfil')" onkeydown="if(event.key==='Enter')setTab('perfil')" role="button" tabindex="0" aria-label="Abrir perfil" class="rounded-2xl bg-panel border border-line p-3 sm:p-4 min-h-[7.25rem] flex items-center gap-3 sm:gap-4 shrink-0 cursor-pointer active:opacity-80">${profBlock(p,innerWidth<640?40:52)}
+     <div class="min-w-0 flex-1"><div class="font-display text-2xl sm:text-3xl font-bold leading-tight break-words">Olá, ${esc(p.name)}!</div>
+      <div class="flex flex-wrap gap-1 mt-1.5 text-[11px] sm:text-xs text-zinc-300 leading-tight"><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${p.weight} kg</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${p.height} cm</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">IMC ${bmi.toFixed(1)}</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">Inclinação: ${INT[S.inten].n}</span></div>
+      <div class="flex flex-wrap gap-1 mt-1 text-[11px] sm:text-xs text-emerald-300 leading-tight"><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">Nível ${lvInfo(G(p).xp).l}</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${G(p).coins.toLocaleString('pt-BR')} engrenagens</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${lvInfo(G(p).xp).cur.toLocaleString('pt-BR')}/${lvInfo(G(p).xp).need.toLocaleString('pt-BR')} XP</span></div>
+      <div class="text-[11px] sm:text-xs text-zinc-500 mt-1.5 leading-snug break-words">${last?'Último treino: '+new Date(last.date).toLocaleDateString('pt-BR')+' · '+hhmm(last.date-last.time*1000)+' - '+hhmm(last.date)+'<br>'+esc(last.routeName)+' · '+last.dist.toFixed(1)+' km':'Nenhum treino registrado ainda'}</div></div></section>
     ${wDue(p)?`<button onclick="weightModal()" class="w-full rounded-xl border border-ember/60 bg-ember/10 text-ember px-3 py-2 text-sm font-semibold flex items-center gap-2 shrink-0"><i data-lucide="scale" class="w-4 h-4"></i>Hora de atualizar seu peso da semana<i data-lucide="chevron-right" class="w-4 h-4 ml-auto"></i></button>`:''}
     <div class="grid grid-cols-4 gap-2 lg:gap-3 shrink-0">${st('Semana',weekKm(p).toFixed(1),'km')}${st('Total',km.toFixed(1),'km')}${st('Treinos',h.length+G(p).del.n,'')}${st('Recordes',nb,'')}</div>
+    ${calBox(p)}
     <section class="rounded-2xl bg-gradient-to-br from-neon/15 to-panel border border-neon/30 p-3 lg:p-5 flex flex-col justify-center gap-2 lg:flex-1 lg:min-h-0">
-     <div class="flex items-center justify-between text-neon text-xs font-semibold"><span class="flex items-center gap-1.5"><i data-lucide="sparkles" class="w-4 h-4"></i>Mensagem do dia</span><button onclick="nextMsg()" class="flex items-center gap-1 text-zinc-400 hover:text-neon"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Outra</button></div>
-     <p class="font-display text-xl lg:text-4xl font-bold leading-tight">${motivMsg(p)}</p></section>
+     <div class="flex items-center justify-between text-neon text-xs font-semibold"><span class="flex items-center gap-1.5"><i data-lucide="sparkles" class="w-4 h-4"></i>Mensagem do dia</span><span class="flex items-center gap-2"><button onclick="nextMsg()" class="flex items-center gap-1 text-zinc-400 hover:text-neon"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Outra</button><span id="msgRingBox" class="pointer-events-none [&>svg]:!w-6 [&>svg]:!h-6">${recRing(Date.now()-S.msg.t0,MSG_MS)}</span></span></div>
+     <p id="msgTxt" class="font-display text-xl lg:text-4xl font-bold leading-tight">${motivMsg(p)}</p></section>
     <button onclick="setTab('rotas')" class="w-full py-3 lg:py-5 rounded-2xl bg-brand text-white font-display text-3xl lg:text-4xl font-extrabold flex items-center justify-center gap-3 shrink-0 shadow-[0_8px_32px_rgba(10,120,210,.55)]"><i data-lucide="bike" class="w-8 h-8"></i>TREINAR<i data-lucide="arrow-right" class="w-7 h-7"></i></button>
    </div>
    <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-2 lg:min-h-0">${recHtml}${hordaCard()}
@@ -672,15 +841,18 @@ function homeTab(){
 
 /* ---------- Estrutura principal ---------- */
 function shell(){const p=profile();
-  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" aria-label="${id}" class="tabbtn ${S.tab===id?'on':''} flex items-center gap-2 px-4 py-2 sm:py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-white text-white':'border-transparent text-white/70 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4 shrink-0"></i><span class="lbl">${l}</span>${id==='treino'&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}</button>`;
+  const tab=(id,ic,l)=>`<button onclick="setTab('${id}')" aria-label="${id}" class="tabbtn relative ${S.tab===id?'on':''} flex items-center gap-2 px-4 py-2 sm:py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap ${S.tab===id?'border-white text-white':'border-transparent text-white/70 hover:text-white'}"><i data-lucide="${ic}" class="w-4 h-4 shrink-0"></i><span class="lbl">${l}</span>${(id==='treino'||id==='maratona'&&S.wo.mode==='maratona')&&(S.wo.running||S.wo.dist>0)?'<span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>':''}${id==='perfil'&&wDue(p)?'<span class="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-ember ring-2 ring-brand" aria-label="Atualizar peso"></span>':''}</button>`;
   return `<header class="bg-brand border-b border-white/15 sticky top-0 z-30"><div class="max-w-6xl mx-auto px-3 sm:px-4 flex items-center gap-x-2 sm:gap-x-4 flex-wrap">
    <div class="flex items-center gap-2 text-white py-1.5 sm:py-3"><i data-lucide="bike" class="w-5 h-5 sm:w-6 sm:h-6"></i><span class="font-display text-2xl sm:text-3xl font-extrabold">Andou!</span></div>
-   <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('treino','gauge','Treino')}${tab('rotas','map','Rotas')}${tab('loja','shopping-bag','Loja')}${tab('conquistas','award','Conquistas')}${tab('perfil','user','Perfil<span class="hidden sm:inline"> & Histórico</span>')}</nav>
+   <nav class="flex overflow-x-auto order-3 w-full sm:order-none sm:w-auto sm:flex-1">${tab('home','house','Home')}${tab('treino','gauge','Treino')}${tab('rotas','map','Rotas')}${tab('maratona','swords','Maratona')}${tab('loja','shopping-bag','Loja')}${tab('conquistas','award','Conquistas')}${tab('perfil','user','Perfil<span class="hidden sm:inline"> & Histórico</span>')}</nav>
    <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-white/80"></i></button></div></header>
   ${mainHtml(S.tab)}`}
-const mainHtml=t=>t==='home'?`<main class="max-w-6xl mx-auto p-4" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${homeTab()}</main>`:t==='treino'?`<main class="max-w-6xl mx-auto p-4" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${t==='perfil'?perfil():t==='loja'?loja():t==='conquistas'?conquistas():rotas()}</main>`;
-function setTab(t){if(t==='home'&&S.rec)S.rec.t0=Date.now();if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
-function setHH(){const e=document.querySelector('header');if(e)document.documentElement.style.setProperty('--hh',e.offsetHeight+'px')}
+const mainHtml=t=>t==='home'?`<main class="max-w-6xl mx-auto p-4" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${homeTab()}</main>`:t==='treino'?`<main class="max-w-6xl mx-auto p-4" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${t==='perfil'?perfil():t==='loja'?loja():t==='conquistas'?conquistas():t==='maratona'?maratona():rotas()}</main>`;
+function setTab(t){if(t!=='maratona')S.mrLib=false;if(t==='home'&&S.rec)S.rec.t0=Date.now();if(t==='home'&&S.msg)S.msg.t0=Date.now();if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
+/* --hh = altura do cabeçalho. No primeiro desenho após o login o Tailwind (CDN) ainda está gerando o CSS e a medida saía errada, deixando
+   a home espremida até o carrossel mudar; agora o cabeçalho é observado (ResizeObserver) e a medida é refeita logo após cada render. */
+const _hro=window.ResizeObserver?new ResizeObserver(()=>setHH()):null;
+function setHH(){const e=document.querySelector('header');if(!e)return;document.documentElement.style.setProperty('--hh',e.offsetHeight+'px');if(_hro&&e._ro!==1){e._ro=1;_hro.observe(e)}}
 window.addEventListener('resize',setHH);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(setHH);
 
 /* ===== Deslizar o dedo para trocar de aba (só toque/mobile) =====
@@ -690,7 +862,7 @@ window.addEventListener('resize',setHH);if(document.fonts&&document.fonts.ready)
    - só "trava" como deslize se o movimento for claramente horizontal (diagonal/vertical = rolagem normal);
    - só troca se arrastar mais de 1/3 da tela ou fizer um gesto rápido; senão volta ao lugar;
    - segundo dedo, cancelamento do sistema ou re-render cancelam e voltam. */
-const TAB_ORDER=['home','treino','rotas','loja','conquistas','perfil'];
+const TAB_ORDER=['home','treino','rotas','maratona','loja','conquistas','perfil'];
 let SW=null;
 function navCenter(){const n=document.querySelector('header nav'),b=n&&n.querySelector('.tabbtn.on');if(n&&b)n.scrollLeft+=b.getBoundingClientRect().left-n.getBoundingClientRect().left-(n.clientWidth-b.offsetWidth)/2}
 function swAbort(){const s=SW;SW=null;if(!s)return;clearTimeout(s.tm);Object.values(s.pv||{}).forEach(p=>p.remove());
@@ -757,7 +929,19 @@ function swEnd(e,cancel){
   swFinish(s,!cancel&&!!t&&(Math.abs(dx)>W*.33||(Math.abs(v)>.45&&Math.abs(dx)>50&&Math.sign(v)===Math.sign(dx))))}
 document.addEventListener('pointerup',e=>{if(!AND)swEnd(e,false)},{passive:true});
 document.addEventListener('pointercancel',e=>{if(!AND)swEnd(e,true)},{passive:true});
-function render(){hrWarnUpd();admPanel();swAbort();$('#app').innerHTML=S.cur&&profile()?shell():home();lucide.createIcons();setHH();requestAnimationFrame(setHH);navCenter();if(S.cur&&S.tab==='treino')updLive();syncAnims();if(S.cur&&S.tab==='home')recSched()}
+/* caixas com altura fixa: mostram só os 4 primeiros cards e o resto rola dentro do box (Loja e Conquistas).
+   A altura é medida pelo 4º card, então vale para qualquer nº de colunas; a posição do scroll é guardada entre renders. */
+/* rolagem horizontal da Loja: a roda do mouse (vertical) também anda para o lado; a posição é lembrada entre redesenhos */
+function hWheel(e){const el=e.currentTarget;if(Math.abs(e.deltaX)>Math.abs(e.deltaY)||el.scrollWidth<=el.clientWidth)return;const mx=el.scrollWidth-el.clientWidth;
+  if((e.deltaY<0&&el.scrollLeft<=0)||(e.deltaY>0&&el.scrollLeft>=mx-1))return;e.preventDefault();el.scrollLeft+=e.deltaY}
+function fit4(){document.querySelectorAll('[data-hs]').forEach(e=>{const v=(S.sc4||{})[e.dataset.hs];if(v&&Math.abs(e.scrollLeft-v)>1)e.scrollLeft=v});document.querySelectorAll('[data-fit4]').forEach(w=>{const g=w.firstElementChild;if(!g)return;
+  const cur=w.scrollTop,sv=(S.sc4||{})[w.dataset.fit4]||0;w.style.maxHeight='none';
+  if(g.children.length<=4)return;
+  const t=w.getBoundingClientRect().top;let b=0;[...g.children].slice(0,4).forEach(c=>{b=Math.max(b,c.getBoundingClientRect().bottom)});
+  w.style.maxHeight=Math.ceil(b-t+2)+'px';w.scrollTop=cur||sv})}
+document.addEventListener('scroll',e=>{const w=e.target;if(w&&w.dataset&&w.dataset.fit4){(S.sc4=S.sc4||{})[w.dataset.fit4]=w.scrollTop}else if(w&&w.dataset&&w.dataset.hs){(S.sc4=S.sc4||{})[w.dataset.hs]=w.scrollLeft}},true);
+addEventListener('resize',()=>fit4());
+function render(){hrWarnUpd();admPanel();swAbort();$('#app').innerHTML=S.cur&&profile()?shell():home();lucide.createIcons();setHH();requestAnimationFrame(setHH);[80,250,600,1500].forEach(ms=>setTimeout(setHH,ms));navCenter();if(S.cur&&S.tab==='treino')updLive();syncAnims();fit4();setTimeout(fit4,250);if(S.cur&&S.tab==='home'){recSched();msgSched()}}
 
 /* ---------- Moedas, XP e eventos ---------- */
 /* Por km: moedas e XP pela distância + ganho de altimetria do km; ao final: conclusão e velocidade média; por evento vencido (constantes em ECO) */
@@ -870,7 +1054,7 @@ function evTick(){const w=S.wo,r=route();if(!r||!w.running||w.arming)return;
   const L=live();w.spdH.push(L.spd);if(w.spdH.length>8)w.spdH.shift();
   kmSync();
   if(w.secs-(w.trLast||0)>=5){w.trace.push([Math.round(w.secs),+w.dist.toFixed(3)]);w.trLast=w.secs}   /* rastro (tempo, distância) para o ghost */
-  if(w.mode==='horda')return;                                                                              /* sem eventos aleatórios na Fuga da Horda */
+  if(w.mode==='horda'||w.mode==='maratona')return;                                                                              /* sem eventos aleatórios na Fuga da Horda */
   if(!w.evCur){
     /* só dispara após 5 min, com o ciclista pedalando e no ponto sorteado */
     const nx=w.evs.find(x=>x.st==='todo');
@@ -959,12 +1143,12 @@ const HAP={   /* padrão Android: [vibra, pausa, vibra, ...] em ms (nomes iguais
 const HAP_AND=typeof navigator.vibrate==='function';
 const HAP_IOS=(()=>{if(HAP_AND||!IOS)return false;const m=navigator.userAgent.match(/OS (\d+)[_.](\d+)/);return !m||+m[1]>17||(+m[1]===17&&+m[2]>=4)})();
 const HAP_OK=HAP_AND||HAP_IOS;
-let HAP_ON=load('cad_haptic',true)!==false,hapLbl=null,hapT=[],hapCoin=-1e9;
+let HAP_ON=true,hapLbl=null,hapT=[],hapCoin=-1e9;
 function hapEl(){if(hapLbl&&hapLbl.isConnected)return hapLbl;
   const l=document.createElement('label'),i=document.createElement('input');l.setAttribute('aria-hidden','true');l.style.display='none';
   i.type='checkbox';i.setAttribute('switch','');i.tabIndex=-1;l.appendChild(i);document.body.appendChild(l);return hapLbl=l}
 function haptic(name,force){
-  if((!HAP_ON&&!force)||document.hidden)return;const p=HAP[name];if(!p)return;
+  if((!(HAP_ON||!isAdmin())&&!force)||document.hidden)return;const p=HAP[name];if(!p)return;
   if(name==='coin'){const n=performance.now();if(n-hapCoin<250)return;hapCoin=n}   /* vários ganhos de uma vez = um só toque */
   if(isAdmin())hapPopup(name,p);                                                    /* Admin no PC: mostra o comando em pop-up */
   if(!HAP_OK)return;
@@ -973,7 +1157,7 @@ function haptic(name,force){
     hapT.forEach(clearTimeout);hapT=[];let t=0;                                      /* iOS: um novo padrão substitui o anterior, como no Android */
     p.forEach((d,i)=>{if(i%2===0){if(t===0)hapEl().click();else hapT.push(setTimeout(()=>{try{hapEl().click()}catch(e){}},t))}t+=d})
   }catch(e){}}
-function toggleHaptic(){HAP_ON=!HAP_ON;store('cad_haptic',HAP_ON);
+function toggleHaptic(){if(!isAdmin())return;HAP_ON=!HAP_ON;
   const b=document.getElementById('hap-sw');if(b){b.className='w-10 h-5 rounded-full p-0.5 '+(HAP_ON?'bg-neon':'bg-zinc-700');b.firstElementChild.className='block w-4 h-4 rounded-full bg-ink transition-transform '+(HAP_ON?'translate-x-5':'')}
   if(HAP_ON)haptic('go')}                                                            /* teste imediato, dentro do toque (necessário no iOS) */
 /* Efeito sonoro simples (Web Audio): pausa = dois tons descendo, retomada = dois tons subindo. O áudio é liberado no primeiro toque (exigência do iOS/Chrome). */
@@ -1016,7 +1200,7 @@ function playLbl(){const w=S.wo,started=w.dist>0||w.running||w.auto;return `<i d
 function refreshPlay(){hrWarnUpd();document.querySelectorAll('.js-play').forEach(b=>{b.innerHTML=playLbl()});if(window.lucide)lucide.createIcons()}
 /* Pausa automática: depois que o treino começa de fato (3-2-1 e velocidade > 0), velocidade 0 pausa na hora; voltar a pedalar retoma sozinho.
    Só retoma pausas automáticas (uma pausa manual espera o botão). Na Fuga da Horda não há pausa automática: parar é justamente o perigo. */
-function autoCheck(){const w=S.wo;if(w.arming||cdBusy||w.mode==='horda'||!route())return;const spd=live().spd;
+function autoCheck(){const w=S.wo;if(w.arming||cdBusy||w.mode==='horda'||w.mode==='maratona'||!route())return;const spd=live().spd;
   if(w.running){if(spd>0)w.armed=true;
     else if(w.armed){w.running=false;w.auto=true;evShow('');beep('pause');refreshPlay();toast('Treino pausado: velocidade 0')}}
   else if(w.auto&&spd>0){w.running=true;w.auto=false;w.last=Date.now();beep('resume');refreshPlay();toast('Treino retomado')}}
@@ -1040,8 +1224,8 @@ async function pair(kind,all){
     if(e.name==='NotFoundError')toast('Nenhum sensor selecionado. Acorde o sensor (gire a pedivela / ponha a cinta) e tente de novo, ou use "Mostrar todos".');
     else if(e.name==='SecurityError')toast('Bluetooth bloqueado aqui (página dentro de iframe ou sem permissão). Abra a página direto no Chrome.');
     else toast('Falha ao conectar: '+(e.message||e.name))}}
-function toggleSim(){S.sim.on=!S.sim.on;render()}
-function setSim(k,v){S.sim[k]=+v;autoCheck();const el=$('#sv-'+k);if(el)el.textContent=v;updLive();updHome()}
+function toggleSim(){if(!isAdmin())return;S.sim.on=!S.sim.on;render()}
+function setSim(k,v){S.sim[k]=+v;autoCheck();const el=$('#sv-'+k);if(el)el.textContent=v;updLive();updHome();mrSend()}
 
 /* ---------- Ghost Run ----------
    O ghost corre o melhor tempo prévio (seu ou do líder do ranking) na mesma pista e no mesmo modo de inclinação. Usa o rastro
@@ -1061,8 +1245,12 @@ function ghTime(gh,d,r){if(!gh)return 0;const tr=gh.tr;if(!tr)return gh.total*Ma
 /* ---------- Modo "Fuga da Horda" ----------
    Depois de HORDA.delay s pedalando, um zumbi sai da largada e avança linearmente pelo GPX, cada vez mais rápido. O ciclista precisa
    manter distância; se o zumbi o alcançar, o modo termina (o treino é salvo). Chegar ao fim da rota = escapou. */
+/* zumbi do card "Fuga da Horda": mesmo desenho dos mascotes (círculo com aro brilhante + emoji centralizado) */
+function zombieMas(size=56){const eu=emojiImg('🧟'),L=Math.round((size-4)*.72),
+  em=eu?`<img class="mem-img" src="${eu}" alt="" draggable="false" style="width:${L}px;height:${L}px">`:`<span class="mem" style="font-size:${Math.round(size*.74)}px">🧟</span>`;
+  return `<div class="mas mas-epico shrink-0" style="width:${size}px;height:${size}px;border:2px solid #7ccf6a;--rc:#7ccf6a" aria-hidden="true">${em}</div>`}
 function hordaCard(){const lv=lvInfo(G().xp).l,ok=lv>=FEAT.horda;
-  return `<section class="rounded-2xl border p-3 flex items-center gap-3 shrink-0" style="border-color:#3d6b34;background:linear-gradient(135deg,#0e1d10,#080f17)"><svg viewBox="-46 -46 92 92" class="w-14 h-14 shrink-0" aria-hidden="true">${zombieG(0,0,32)}</svg>
+  return `<section class="rounded-2xl border p-3 flex items-center gap-3 shrink-0" style="border-color:#3d6b34;background:linear-gradient(135deg,#0e1d10,#080f17)">${zombieMas(56)}
    <div class="min-w-0 flex-1"><h3 class="font-display text-xl font-bold leading-none" style="color:#9be58a">Fuga da Horda</h3><p class="text-xs text-zinc-400 mt-1">Um zumbi vai atrás de você pela pista. Mantenha o ritmo e não deixe ele te alcançar. Engrenagens e XP ×${ECO.hordaMul}.</p></div>
    ${ok?`<button onclick="startHorda()" class="shrink-0 px-3 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5" style="background:#2f7a2a;color:#fff"><i data-lucide="skull" class="w-4 h-4"></i>Fugir</button>`:`<div class="shrink-0 text-xs text-zinc-500 flex items-center gap-1"><i data-lucide="lock" class="w-3.5 h-3.5"></i>Nível ${FEAT.horda}</div>`}</section>`}
 function startHorda(){if(lvInfo(G().xp).l<FEAT.horda){toast('Fuga da Horda desbloqueia no nível '+FEAT.horda);return}
@@ -1078,7 +1266,7 @@ function hordaOver(){finish(false)}
 function hordaModal(r){
   openModal(`<div class="text-center py-2"><svg viewBox="-46 -46 92 92" class="mx-auto w-24 h-24" aria-hidden="true">${zombieG(0,0,32)}</svg><h2 class="font-display text-4xl font-bold mt-2 ${r.done?'text-emerald-300':'text-ember'}">${r.done?'Você escapou!':'A horda te alcançou!'}</h2>
    <p class="text-zinc-300 text-sm mt-1">${r.done?'Você chegou ao fim da rota antes do zumbi.':'O zumbi alcançou você antes do fim da rota.'}</p>
-   <div class="grid grid-cols-3 gap-2 my-4 text-center">${[['Distância',r.dist.toFixed(2)+' km'],['Tempo',fmt(r.time)],['Recompensa','+'+r.coins.toLocaleString('pt-BR')]].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
+   <div class="grid grid-cols-2 gap-2 my-4 text-center">${[['Distância',r.dist.toFixed(2)+' km'],['Tempo',fmt(r.time)],['Recompensa','+'+r.coins.toLocaleString('pt-BR')],['Calorias',(r.kcal||0).toLocaleString('pt-BR')+' kcal']].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
    ${xpLines(r)}${xpBars(r)}${extrasHtml(r)}<button onclick="closeModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Continuar</button></div>`,'max-w-sm')}
 /* chips de status do modo (ghost / horda): atualizados junto com os números */
 function updMode(){const w=S.wo,r=route();if(!r)return;
@@ -1097,17 +1285,17 @@ function hmVal(k){if(!(S.sim.on||S.bt.ftms))return '-';const L=live();
 function updHome(){['spd','cad','hr'].forEach(k=>set('hm-'+k,hmVal(k)))}
 function btPanel(){
   const dot=(on)=>`<span class="inline-block w-2.5 h-2.5 rounded-full ${on?'bg-neon shadow-[0_0_8px_#6ac3ff]':'bg-zinc-600'}"></span>`;
-  const row=(k,ic,l)=>`<div class="flex items-center gap-3 py-2"><i data-lucide="${ic}" class="w-5 h-5 text-zinc-400"></i><div class="flex-1 min-w-0"><div class="text-sm">${l}</div><div class="text-xs text-zinc-500 truncate">${S.bt[k]?esc(S.bt[k]):'Desconectado'}</div></div>${dot(!!S.bt[k])}<button onclick="pair('${k}')" class="text-xs px-3 py-1.5 rounded-lg border border-line hover:border-neon">${S.bt[k]?'Trocar':'Parear'}</button></div>`;
+  const row=(k,ic,l,x='')=>`<div class="flex items-center gap-3 py-2"><i data-lucide="${ic}" class="w-5 h-5 text-zinc-400"></i><div class="flex-1 min-w-0"><div class="text-sm flex items-center gap-1.5 min-w-0"><span class="truncate">${l}</span>${x}</div><div class="text-xs text-zinc-500 truncate">${S.bt[k]?esc(S.bt[k]):'Desconectado'}</div></div>${dot(!!S.bt[k])}<button onclick="pair('${k}')" class="text-xs px-3 py-1.5 rounded-lg border border-line hover:border-neon">${S.bt[k]?'Trocar':'Parear'}</button></div>`;
   const val=(k,ic,l,u)=>`<div class="flex items-center gap-3 py-2"><i data-lucide="${ic}" class="w-5 h-5 text-zinc-400"></i><div class="flex-1 min-w-0 text-sm">${l}</div><div class="text-right font-display text-3xl font-bold leading-none tabular-nums"><span id="hm-${k}" class="text-neon">${hmVal(k)}</span> <span class="text-xs font-sans font-normal text-zinc-500 inline-block w-9 text-left">${u}</span></div></div>`;
   const sl=(k,l,min,max,u)=>`<label class="block text-sm mt-3"><span class="flex justify-between"><span>${l}</span><span><b id="sv-${k}" class="text-neon">${S.sim[k]}</b> ${u}</span></span><input type="range" min="${min}" max="${max}" value="${S.sim[k]}" oninput="setSim('${k}',this.value)"></label>`;
   return `<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold flex items-center gap-2 mb-1"><i data-lucide="bluetooth" class="w-5 h-5 text-neon"></i>Sensores</h3>
-   ${navigator.bluetooth?'':`<p class="text-xs text-ember mb-2">${btMsg()} Modo simulado ativado.</p>`}${IOS&&!('wakeLock' in navigator)?'<p class="text-xs text-zinc-400 mb-2">Para a tela não apagar durante o treino: Ajustes › Tela e Brilho › Bloqueio Automático › Nunca.</p>':''}
-   ${row('ftms','bike','Girassol (FTMS)')}
+   ${navigator.bluetooth?'':`<p class="text-xs text-ember mb-2">${btMsg()}${S.sim.on?' Modo simulado ativado.':''}</p>`}${IOS&&!('wakeLock' in navigator)?'<p class="text-xs text-zinc-400 mb-2">Para a tela não apagar durante o treino: Ajustes › Tela e Brilho › Bloqueio Automático › Nunca.</p>':''}
+   ${row('ftms','bike',esc(bikeName())+' (FTMS)',`<button onclick="bikeModal(false)" aria-label="Renomear bicicleta" title="Renomear bicicleta" class="shrink-0 text-zinc-500 hover:text-neon"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>`)}
    <p class="text-[11px] text-zinc-500 mt-1">Não aparece? <button onclick="pair('ftms',true)" class="underline hover:text-neon">listar todos os dispositivos</button></p>
    <div class="border-t border-line mt-2 pt-1">${val('spd','gauge','Velocidade','km/h')}${val('cad','rotate-cw','Cadência','rpm')}${val('hr','heart-pulse','Frequência cardíaca','bpm')}</div>
-   ${HAP_OK?`<div class="border-t border-line mt-2 pt-3"><button onclick="toggleHaptic()" class="w-full flex items-center justify-between gap-3 text-sm text-left"><span class="min-w-0 flex-1 text-left">Vibração<span class="block text-[11px] text-zinc-500">Eventos, engrenagens/XP e contagem 3-2-1</span></span><span id="hap-sw" class="shrink-0 w-10 h-5 rounded-full p-0.5 ${HAP_ON?'bg-neon':'bg-zinc-700'}"><span class="block w-4 h-4 rounded-full bg-ink transition-transform ${HAP_ON?'translate-x-5':''}"></span></span></button></div>`:`<p class="border-t border-line mt-2 pt-2 text-[11px] text-zinc-500">${IOS?'Vibração: exige iOS 17.4 ou mais recente.':'Vibração indisponível neste navegador.'}</p>`}
-   <div class="border-t border-line mt-2 pt-3"><button onclick="toggleSim()" class="w-full flex items-center justify-between gap-3 text-sm text-left"><span class="min-w-0 flex-1 text-left">Modo simulado (sliders)</span><span class="shrink-0 w-10 h-5 rounded-full p-0.5 ${S.sim.on?'bg-neon':'bg-zinc-700'}"><span class="block w-4 h-4 rounded-full bg-ink transition-transform ${S.sim.on?'translate-x-5':''}"></span></span></button>
-   ${S.sim.on?sl('spd','Velocidade',0,60,'km/h')+sl('cad','Cadência',0,130,'rpm')+sl('hr','Freq. cardíaca',50,200,'bpm'):''}</div></section>`}
+   ${!isAdmin()?'':HAP_OK?`<div class="border-t border-line mt-2 pt-3"><button onclick="toggleHaptic()" class="w-full flex items-center justify-between gap-3 text-sm text-left"><span class="min-w-0 flex-1 text-left">Vibração<span class="block text-[11px] text-zinc-500">Eventos, engrenagens/XP e contagem 3-2-1</span></span><span id="hap-sw" class="shrink-0 w-10 h-5 rounded-full p-0.5 ${HAP_ON?'bg-neon':'bg-zinc-700'}"><span class="block w-4 h-4 rounded-full bg-ink transition-transform ${HAP_ON?'translate-x-5':''}"></span></span></button></div>`:`<p class="border-t border-line mt-2 pt-2 text-[11px] text-zinc-500">${IOS?'Vibração: exige iOS 17.4 ou mais recente.':'Vibração indisponível neste navegador.'}</p>`}
+   ${isAdmin()?`<div class="border-t border-line mt-2 pt-3"><button onclick="toggleSim()" class="w-full flex items-center justify-between gap-3 text-sm text-left"><span class="min-w-0 flex-1 text-left">Modo simulado (sliders)</span><span class="shrink-0 w-10 h-5 rounded-full p-0.5 ${S.sim.on?'bg-neon':'bg-zinc-700'}"><span class="block w-4 h-4 rounded-full bg-ink transition-transform ${S.sim.on?'translate-x-5':''}"></span></span></button>
+   ${S.sim.on?sl('spd','Velocidade',0,60,'km/h')+sl('cad','Cadência',0,130,'rpm')+sl('hr','Freq. cardíaca',50,200,'bpm'):''}</div>`:''}</section>`}
 function tile(id,l,u,c=''){return `<div class="rounded-2xl bg-panel border border-line p-4"><div class="text-xs text-zinc-400">${l}</div><div class="font-display text-5xl font-bold tabular-nums ${c}"><span id="${id}">--</span> <span class="text-base text-zinc-500">${u}</span></div></div>`}
 function simPanel(){if(!S.sim.on)return '';
   const sl=(k,l,min,max,u)=>`<label class="block text-xs mt-2"><span class="flex justify-between"><span>${l}</span><span><b id="sv-${k}" class="text-neon">${S.sim[k]}</b> ${u}</span></span><input type="range" min="${min}" max="${max}" value="${S.sim[k]}" oninput="setSim('${k}',this.value)"></label>`;
@@ -1124,6 +1312,7 @@ function sensInfo(k){if(S.sim.on)return 'sim';if(!S.bt[k])return '-';
   if(sensorState(k)[1]==='bg-neon')return S.sensor.rate[k]?S.sensor.rate[k].toFixed(1)+' Hz':'ok';return 's/ sinal'}
 function sensOverlay(){return `<div class="shrink-0 flex flex-col items-end gap-0 pointer-events-none leading-none">${SENS.map(([k,ic])=>`<div class="flex items-center gap-1.5 py-0"><span id="ss-t-${k}" class="text-[10px] tabular-nums text-zinc-300">${sensInfo(k)}</span><span id="ss-d-${k}" class="shrink-0 ${sensCls(k)}"><i data-lucide="${ic}" class="w-3 h-3"></i></span></div>`).join('')}</div>`}
 function treino(){
+  if(S.wo.mode==='maratona')return mrBusyCard();
   const r=route(),w=S.wo;
   if(!r)return `<div class="p-10 text-center text-zinc-400 border border-dashed border-line rounded-2xl">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</div>`;
   w.route=r.id;const started=w.dist>0||w.running||!!w.arming||w.auto;
@@ -1141,13 +1330,13 @@ function treino(){
   const playBtn=playLbl();
   const mapHead=`<div class="flex justify-between items-center text-xs lg:text-sm text-zinc-400 mb-1 lg:mb-2 shrink-0 gap-2"><span class="font-display text-lg lg:text-2xl font-bold text-white leading-none">Circuito</span><span class="flex items-center gap-2 shrink-0"><span id="m-ptsfl" class="text-[11px] text-white tabular-nums opacity-0 transition-opacity duration-300"></span><span class="flex items-center gap-1"><i data-lucide="cog" class="w-3.5 h-3.5 text-white"></i><span id="m-pts" class="font-display text-sm lg:text-base font-bold text-white tabular-nums">${(S.wo.coins||0).toLocaleString('pt-BR')}</span></span><span id="m-prog" class="text-right"></span></span></div>`;
   /* o mapa fica num wrapper relativo: o SVG é redesenhado a cada segundo, os cartões por cima não */
-  const mapArea=(left='')=>`<div class="relative flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div id="m-map" class="absolute inset-0"></div>${started?'':ghostOverlay()}${riderOverlay()}</div></div><div class="shrink-0 flex items-end gap-3"><div class="relative max-w-[760px] h-10 lg:h-12" style="width:${started?'max(62%,calc(100% - 205px))':'80%'}"><span class="absolute left-0 top-0 z-10 text-[9px] leading-none text-zinc-400 pointer-events-none">Altimetria</span><div id="m-elev" class="h-full [&>svg]:h-full [&>svg]:w-full"></div></div></div>${started?attrsOverlay():''}</div>`;
+  const mapArea=(left='')=>`<div class="relative flex-1 min-h-[150px] lg:min-h-0 flex flex-col gap-1"><div class="flex-1 min-h-0 flex gap-1">${left?`<div class="shrink-0 flex flex-col gap-1.5 pt-0.5 pointer-events-none">${left}</div>`:''}<div class="relative flex-1 min-w-0"><div class="map-in absolute"><div id="m-map" class="absolute inset-0"></div>${started?'':ghostOverlay()}${riderOverlay()}</div></div></div>${started?attrsOverlay():''}</div>`;
   const circuit=started
    /* em treino: o Circuito é o box principal e carrega as métricas */
    ?`<section id="circ" class="order-1 lg:order-none rounded-2xl bg-panel border border-neon/30 px-2 py-2.5 lg:p-4 flex flex-col flex-1 min-h-[260px] lg:min-h-0">${mapHead}
       <div class="flex items-center gap-2 mb-1.5 shrink-0"><div class="h-1.5 flex-1 rounded-full bg-line overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div>${ghChip}<div class="text-[11px] text-zinc-400 leading-none shrink-0">Virtual <span id="m-fac" class="tabular-nums text-ember font-semibold">×1.00</span></div></div>
       <div class="flex-1 min-h-0 flex flex-col lg:flex-row gap-2 lg:gap-4">
-       ${mapArea(hzChip+ms+mo('route','m-dist','km')+mo('timer','m-time','')+mo('mountain','m-grade','')+mo('heart-pulse','m-hr','bpm','text-ember'))}</div></section>`
+       ${mapArea(hzChip+ms+mo('route','m-dist','km')+mo('timer','m-time','')+mo('mountain','m-grade','')+mo('heart-pulse','m-hr','bpm','text-ember')+mo('flame','m-kcal','kcal','text-neon'))}</div></section>`
    /* antes de iniciar: mapa simples; velocidade e métricas ficam em boxes próprios */
    :`<section class="order-3 lg:order-none rounded-2xl bg-panel border border-neon/30 p-2.5 lg:p-4 flex flex-col flex-1 min-h-[130px] lg:min-h-0">${mapHead}${mapArea()}</section>`;
   const hero=started?'':`<section class="order-1 lg:order-none rounded-xl bg-gradient-to-br from-panel to-ink border border-line px-3 py-1.5 lg:py-3 shrink-0">
@@ -1155,9 +1344,9 @@ function treino(){
        <div class="min-w-0"><div class="text-[11px] text-zinc-400">Velocidade</div>
         <div class="font-display font-extrabold text-neon leading-none tabular-nums text-5xl lg:text-7xl"><span id="m-spd">0.0</span><span class="text-base lg:text-xl text-zinc-500 ml-1">km/h</span></div></div>
        <div class="text-right lg:text-left lg:mt-1 shrink-0 pb-0.5"><div class="text-[11px] text-zinc-400">Virtual <span id="m-fac" class="tabular-nums">×1.00</span></div>
-        <div class="font-display text-2xl lg:text-xl font-bold text-ember leading-none tabular-nums lg:inline"><b id="m-vspd" class="font-bold">0.0</b><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
+        <div class="font-display text-2xl lg:text-xl font-bold text-white leading-none tabular-nums lg:inline"><b id="m-vspd" class="font-bold">0.0</b><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
       <div class="h-1.5 rounded-full bg-line mt-2 overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div></section>
-     <div class="order-2 lg:order-none grid grid-cols-6 lg:grid-cols-2 gap-2 shrink-0">${mt('m-cad','Cadência','rpm','col-span-2')}${mt('m-hr','Freq. cardíaca','bpm','col-span-2','text-ember')}${mt('m-grade','Inclinação','','col-span-2')}${mt('m-dist','Distância','km','col-span-2')}${mt('m-time','Tempo','','col-span-4','','lg:col-span-2')}</div>`;
+     <div class="order-2 lg:order-none grid grid-cols-6 lg:grid-cols-2 gap-2 shrink-0">${mt('m-cad','Cadência','rpm','col-span-2')}${mt('m-hr','Freq. cardíaca','bpm','col-span-2')}${mt('m-grade','Inclinação','','col-span-2')}${mt('m-dist','Distância','km','col-span-2')}${mt('m-time','Tempo','','col-span-4','','lg:col-span-2')}</div>`;
   const side=hero+simPanel();                    /* coluna direita (desktop): velocidade/métricas antes de iniciar, simulação */
   const wide=!side.trim();                       /* sem nada na coluna direita: o circuito ocupa a largura toda */
   return `<div class="hm-scroll max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:gap-3 min-h-full lg:h-full">
@@ -1175,6 +1364,7 @@ function treino(){
    <div class="flex-1 lg:min-h-0 flex flex-col gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
     <div class="tr-cols flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 ${wide?'lg:col-span-4':'lg:col-span-3'}">
      ${circuit}
+     <section class="${started?'order-2':'order-4'} lg:order-none rounded-2xl bg-panel border border-line px-3 py-2 lg:p-3 shrink-0"><div class="text-[11px] lg:text-xs text-zinc-400 leading-none mb-1">Altimetria</div><div id="m-elev" class="h-14 lg:h-16 [&>svg]:h-full [&>svg]:w-full"></div></section>
     </div>
     ${wide?'':`<div class="tr-cols flex flex-col gap-2 shrink-0 lg:shrink lg:min-h-0 lg:overflow-y-auto">${side}</div>`}
    </div>
@@ -1201,11 +1391,31 @@ function startCountdown(){if(cdBusy)return;cdBusy=true;cdCancel=false;const w=S.
     if(go){sfx('go');w.running=true;w.last=Date.now();w.trace=[[0,0]];w.trLast=0;if(w.mode==='horda')w.gh=null;else{w.gh=ghostFor(route());ensureEvs()}wakeOn()}render()},3*STEP)}
 function toggleWo(){const w=S.wo;if(cdBusy)return;if(!w.running&&!(w.dist>0)&&!w.auto){startCountdown();return}w.running=!w.running;w.last=Date.now();w.auto=false;if(w.running)w.armed=false;   /* retomada manual: só rearma quando voltar a pedalar */
   wakeOn();if(!w.running)evShow('');beep(w.running?'resume':'pause');render()}
-function resetWo(){if(cdBusy)cdCancel=true;waveReset();const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,arming:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0,coins:0,xp:0,pxp:0,pet:'',elev:0,maxSpd:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0,armed:false,auto:false});evShow('');wakeOff();if(!isAdmin())store('cad_wo',null);
+function resetWo(){if(cdBusy)cdCancel=true;waveReset();const had=S.wo.dist>0||S.wo.secs>0;Object.assign(S.wo,{running:false,arming:false,dist:0,secs:0,hrSum:0,hrN:0,hrMax:0,spdSum:0,spdN:0,cadSum:0,cadN:0,coins:0,xp:0,pxp:0,pet:'',elev:0,maxSpd:0,kmAw:0,evs:[],evCur:null,spdH:[],evOk:0,evTot:0,mode:'normal',hz:null,gh:null,trace:[],trLast:0,armed:false,auto:false});evShow('');wakeOff();if(!isAdmin())store('cad_wo',null);
   if(had&&S.cur)q({t:'del',tb:'active_workouts',col:'profile_id',val:S.cur})}
+/* ---------- Calorias ----------
+   Estimativa a partir das MÉDIAS do treino (velocidade, cadência e batimentos), do peso e do sexo do perfil. Combina:
+   · MET pela velocidade (tabela de ciclismo do Compêndio de Atividades Físicas, interpolada) × peso;
+   · MET pela cadência (≈ 2 + 0,07 × rpm: 60 rpm ≈ 6,2 · 90 rpm ≈ 8,3) × peso;
+   · gasto pela frequência cardíaca (equação de Keytel et al., 2005; idade não é cadastrada, assume-se KC.age).
+   Com batimentos: FC 50 % · velocidade 30 % · cadência 20 %. Sem batimentos: velocidade 60 % · cadência 40 %. Quem não tem leitura sai da média. */
+const KC={age:30};
+const MET_V=[[0,1.3],[8,3.5],[16,5.8],[19.3,6.8],[22.5,8],[25.7,10],[30.6,12],[35,14],[40,16]];
+function metSpd(v){if(v<=0)return 0;for(let i=1;i<MET_V.length;i++){const a=MET_V[i-1],b=MET_V[i];if(v<=b[0])return a[1]+(b[1]-a[1])*(v-a[0])/(b[0]-a[0])}return Math.min(18,16+(v-40)*.2)}
+function kcalRate(spd,cad,hr,p){const W=(p&&+p.weight)||70,sx=p&&p.sex,parts=[];
+  let hk=0;if(hr>=80){const m=(-55.0969+.6309*hr+.1988*W+.2017*KC.age)/4.184*60,f=(-20.4022+.4472*hr-.1263*W+.074*KC.age)/4.184*60;hk=sx==='m'?m:sx==='f'?f:(m+f)/2}
+  const hasH=hk>0;
+  if(hasH)parts.push([.5,hk]);
+  if(spd>0)parts.push([hasH?.3:.6,metSpd(spd)*W]);
+  if(cad>0)parts.push([hasH?.2:.4,(2+.07*Math.min(cad,130))*W]);
+  const tw=parts.reduce((a,x)=>a+x[0],0);return tw?parts.reduce((a,x)=>a+x[0]*x[1],0)/tw:0}
+/* kcal acumuladas do treino em andamento = taxa das médias até agora × tempo (o valor final é o mesmo cálculo) */
+function kcalWo(w,p){const sn=w.spdN||0,cn=w.cadN||0,hn=w.hrN||0;return kcalRate(sn?w.spdSum/sn:0,cn?w.cadSum/cn:0,hn?w.hrSum/hn:0,p)*(w.secs||0)/3600}
+/* treino salvo: usa o valor gravado; treinos antigos (sem kcal) são estimados pela velocidade/FC médias e pelo tempo */
+function kcalOf(h,p){return h.kcal>0?h.kcal:Math.round(kcalRate(h.avgSpd||0,h.avgCad||0,h.avgHr||0,p)*(h.time||0)/3600)}
 function finish(auto){const w=S.wo,r=route(),p=profile();w.running=false;
   if(w.dist<0.05){sfx('end');toast('Treino muito curto para ser salvo');resetWo();render();return}
-  const done=auto||w.dist>=r.dist*.99,prevBest=userBest(r),avg=w.dist/(w.secs/3600),horda=w.mode==='horda';
+  const done=auto||w.dist>=r.dist*.99,prevBest=userBest(r),avg=w.dist/(w.secs/3600),horda=w.mode==='horda',mara=w.mode==='maratona';
   /* recompensa final: km restantes, conclusão e velocidade média */
   sfxHold=true;kmSync();if(done)addGain(ECO.coinConc,ECO.xpConc,'conc');if(w.secs>0)addGain(avg*ECO.coinVel,0,'vel');sfxHold=false;
   sfx(done?'win':'end');
@@ -1217,19 +1427,21 @@ function finish(auto){const w=S.wo,r=route(),p=profile();w.running=false;
   let px=Math.round(+w.pxp||0);if(!px&&pid&&pid===eq&&w.xp>0)px=Math.round(w.xp*(1+(petFx(p).pxp||0)/100));   /* treino restaurado sem o acumulado do mascote */
   let pet=null;
   if(pid&&px>0){const M=PD(p),o=M[pid]||(M[pid]={xp:0}),x0=+o.xp||0,l0=petInfo(x0).l;o.xp=x0+px;pet={id:pid,xp:px,l0,l1:petInfo(o.xp).l,x0,x1:o.xp}}
-  const h={id:uid(),routeId:r.id,routeName:r.name,date:Date.now(),dist:+w.dist.toFixed(3),time:w.secs,avgSpd:avg,avgHr:w.hrN?Math.round(w.hrSum/w.hrN):0,maxHr:Math.round(w.hrMax),done,inten:S.inten,coins:w.coins,xp:w.xp,evOk:w.evOk,evTot:w.evTot,mode:w.mode||'normal',petId:pet?pid:'',petXp:pet?pet.xp:0};
-  if(done&&!horda)h.trace=w.trace;                         /* só treinos normais concluídos guardam o rastro (usado pelo ghost) */
-  const beat=done&&!horda&&!!prevBest&&h.time<prevBest;
+  const avgCad=w.cadN?Math.round(w.cadSum/w.cadN):0,kcal=Math.round(kcalWo(w,p));
+  const h={id:uid(),routeId:r.id,routeName:r.name,date:Date.now(),dist:+w.dist.toFixed(3),time:w.secs,avgSpd:avg,avgHr:w.hrN?Math.round(w.hrSum/w.hrN):0,maxHr:Math.round(w.hrMax),kcal,avgCad,done,inten:S.inten,coins:w.coins,xp:w.xp,evOk:w.evOk,evTot:w.evTot,mode:w.mode||'normal',petId:pet?pid:'',petXp:pet?pet.xp:0};
+  if(done&&!horda&&!mara)h.trace=w.trace;                         /* só treinos normais concluídos guardam o rastro (usado pelo ghost) */
+  const beat=done&&!horda&&!mara&&!!prevBest&&h.time<prevBest;
   p.history.unshift(h);const old=pruneTraces(p,r);
   const badges=achFinish(p,w,h,done,horda,beat);           /* estatísticas acumuladas + medalhas novas */
   saveProfiles();q({t:'up',tb:'workouts',row:wRow(p.id,h)});old.forEach(x=>q({t:'up',tb:'workouts',row:wRow(p.id,x)}));q({t:'up',tb:'profiles',row:pRow(p)});
-  const res={mascot:pid,xp0,xp1:g.xp,routeName:r.name,routeDist:r.dist,avgSpd:avg,avgHr:h.avgHr,coins:w.coins,xp:w.xp,dist:h.dist,time:h.time,done,lv0,lv1,rec:done&&!horda&&(!prevBest||h.time<prevBest),pet,badges};
+  const res={mascot:pid,xp0,xp1:g.xp,routeName:r.name,routeDist:r.dist,avgSpd:avg,avgHr:h.avgHr,kcal:h.kcal,coins:w.coins,xp:w.xp,dist:h.dist,time:h.time,done,lv0,lv1,rec:done&&!horda&&!mara&&(!prevBest||h.time<prevBest),pet,badges};
   resetWo();
   const gain=' · +'+res.coins.toLocaleString('pt-BR')+' engrenagens · +'+res.xp.toLocaleString('pt-BR')+' XP (corredor)'+(pet?' · +'+pet.xp.toLocaleString('pt-BR')+' XP ('+MASCOTS[pid].name+')':'');
-  if(horda)toast(done?'Você escapou da horda!':'A horda te alcançou…');
+  if(mara){}else if(horda)toast(done?'Você escapou da horda!':'A horda te alcançou…');
   else toast((done?(res.rec?'Rota concluída: novo recorde!':'Rota concluída!'):'Treino salvo no histórico')+gain);
   render();
-  if(horda)setTimeout(()=>hordaModal(res),350);
+  if(mara)mrFinished(res);
+  else if(horda)setTimeout(()=>hordaModal(res),350);
   else if(!done)setTimeout(()=>partialModal(res),350);   /* treino parcial: card central persistente */
   else if(badges.length||(pet&&pet.l1>pet.l0))setTimeout(()=>resultModal(res),500);   /* nível + mascote + medalhas no mesmo resumo */
   else if(lv1>lv0)setTimeout(()=>levelModal(lv1),500)}
@@ -1240,7 +1452,7 @@ function pruneTraces(p,r){const out=[],by={};
 function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v}
 function updLive(){const L=live(),w=S.wo,r=route();if(!r)return;
   set('m-spd',L.spd.toFixed(1));set('m-cad',Math.round(L.cad));set('m-hr',L.hr?Math.round(L.hr):'--');
-  set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));const p=Math.min(1,w.dist/r.dist);
+  set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));set('m-kcal',Math.round(kcalWo(w,profile())).toLocaleString('pt-BR'));const p=Math.min(1,w.dist/r.dist);
   const gr=grade(r,p),fc=factor(gr);set('m-grade',gr.toFixed(1)+'%');set('m-fac','×'+fc.toFixed(2));set('m-vspd',(L.spd*fc).toFixed(1));const b=$('#m-bar');if(b)b.style.width=p*100+'%';const e=$('#m-elev');if(e)e.innerHTML=elevSvg(r,p);
   const mp=$('#m-map');if(mp){mp.innerHTML=trackSvg(r,p,false,true);placeRider();updAttrs(gr)}
   SENS.forEach(([k])=>{const te=document.getElementById('ss-t-'+k);if(te)te.textContent=sensInfo(k);const d=document.getElementById('ss-d-'+k);if(d)d.className='shrink-0 '+sensCls(k)});
@@ -1268,17 +1480,18 @@ let tickN=0;
    Lacunas > 3 s (app em segundo plano) não são contadas. */
 /* avança tempo/distância pelo relógio real; devolve false se a rota terminou */
 function advance(){autoCheck();const w=S.wo,now=Date.now(),dtRaw=Math.min(Math.max((now-(w.last||now))/1000,0),3);w.last=now;
-  if(w.running&&route()){const L=live(),m=(S.sim.on?w.mult:1)*dtRaw,r=route();const f=factor(grade(r,Math.min(1,w.dist/r.dist)));w.secs+=m;w.dist+=L.spd/3600*m*f;if(L.spd>w.maxSpd&&L.spd<=100)w.maxSpd=L.spd;
+  if(w.running&&route()){const L=live(),mr=w.mode==='maratona',m=(S.sim.on&&!mr?w.mult:1)*dtRaw,r=route();const f=factor(grade(r,Math.min(1,w.dist/r.dist)));w.secs=mr&&S.mr.startAt?Math.max(0,(mrNow()-S.mr.startAt)/1000):w.secs+m;w.dist+=L.spd/3600*m*f;if(L.spd>w.maxSpd&&L.spd<=100)w.maxSpd=L.spd;
+    if(dtRaw>0){w.spdSum=(w.spdSum||0)+L.spd*dtRaw;w.spdN=(w.spdN||0)+dtRaw;w.cadSum=(w.cadSum||0)+(L.cad||0)*dtRaw;w.cadN=(w.cadN||0)+dtRaw}   /* médias de velocidade e cadência (calorias) */
     if(L.hr>0&&dtRaw>0){w.hrSum+=L.hr*dtRaw;w.hrN+=dtRaw;w.hrMax=Math.max(w.hrMax,L.hr)}
     if(w.dist>=r.dist){w.dist=r.dist;finish(true);return false}
     if(w.mode==='horda'&&hordaStep(m,L,r)){hordaOver();return false}}
   return true}
 setInterval(()=>{if(!advance())return;evTick();const w=S.wo,now=Date.now();
-  if(!isAdmin()&&(w.running||w.dist>0)&&++tickN%3===0){const sv={...w,running:false,arming:false,profile:S.cur,saved:now,gh:w.gh?{src:w.gh.src,name:w.gh.name,total:w.gh.total,me:w.gh.me,re:1}:null}; /* sobrevive se o iOS recarregar a página */
+  if(!isAdmin()&&(w.running||w.dist>0)&&w.mode!=='maratona'&&++tickN%3===0){const sv={...w,running:false,arming:false,profile:S.cur,saved:now,gh:w.gh?{src:w.gh.src,name:w.gh.name,total:w.gh.total,me:w.gh.me,re:1}:null}; /* sobrevive se o iOS recarregar a página */
     store('cad_wo',sv);
     if(tickN%15===0&&S.cur)q({t:'up',tb:'active_workouts',row:{profile_id:S.cur,data:sv,saved:now}})} /* e, a cada ~15 s, vai para o Supabase */
-  wakeKeep();hrWarnUpd();admPanel();
-  if(S.cur&&S.tab==='treino')updLive();else if(S.cur&&S.tab==='home')updHome()},1000);
+  wakeKeep();hrWarnUpd();admPanel();mrSend();
+  if(S.cur&&S.tab==='treino')updLive();else if(S.cur&&S.tab==='maratona'&&S.mr.ph==='race')updLive();else if(S.cur&&S.tab==='home')updHome()},1000);
 /* Aviso central "Coloque as mãos sobre o sensor cardíaco": visível enquanto o treino está rodando (fora da contagem 3-2-1) e sem batimento (live().hr = 0);
    some assim que o BPM volta. Em modo simulado o BPM nunca é 0, então não aparece. */
 function hrWarnUpd(){const e=document.getElementById('hrwarn');if(!e)return;
@@ -1294,11 +1507,11 @@ function fastUpd(k){autoCheck();hrWarnUpd();const n=performance.now(),a=rateT[k]
   if(fastRaf)return;
   fastRaf=requestAnimationFrame(()=>{fastRaf=0;evMetric();
     if(S.cur&&S.tab==='home'){updHome();return}
-    if(!(S.cur&&S.tab==='treino'&&S.wo.running)||S.sim.on)return;
+    if(!(S.cur&&(S.tab==='treino'||S.tab==='maratona')&&S.wo.running)||S.sim.on)return;
     if(!advance())return;
     const L=live(),w=S.wo,r=route();if(!r)return;const fc=factor(grade(r,Math.min(1,w.dist/r.dist)));
     set('m-spd',L.spd.toFixed(1));set('m-cad',Math.round(L.cad));set('m-hr',L.hr?Math.round(L.hr):'--');
-    set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));set('m-vspd',(L.spd*fc).toFixed(1));updMode()})}
+    set('m-dist',w.dist.toFixed(2));set('m-time',fmt(w.secs));set('m-vspd',(L.spd*fc).toFixed(1));updMode();mrSend()})}
 
 /* ---------- Perfil & Histórico ---------- */
 function perfil(){const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0)+G(p).del.km,t=h.reduce((a,x)=>a+x.time,0)+G(p).del.t,bmi=p.weight/Math.pow(p.height/100,2);
@@ -1308,8 +1521,9 @@ function perfil(){const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0)+G
    <div class="flex-1 min-w-[160px]"><div class="font-display text-4xl font-bold">${esc(p.name)}</div><div class="text-sm text-zinc-400">${p.sex==='f'?'Mulher':p.sex==='m'?'Homem':'Sexo não definido'} · ${p.weight} kg · ${p.height} cm · IMC ${bmi.toFixed(1)}</div><div class="text-sm text-emerald-300 mt-0.5">Nível ${lvInfo(G(p).xp).l} · ${lvInfo(G(p).xp).cur.toLocaleString('pt-BR')}/${lvInfo(G(p).xp).need.toLocaleString('pt-BR')} XP</div></div>
    <button onclick="editProfileModal()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>Editar perfil</button>
    <button onclick="photoModal()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="camera" class="w-4 h-4"></i>Alterar foto</button>
+   <button onclick="visitorView('${p.id}')" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-neon hover:border-neon flex items-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i>Ver como visitante</button>
    <button onclick="deleteProfile()" class="text-sm px-3 py-2 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember flex items-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i>Excluir perfil</button></div>
-   ${pinRow(p)}<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length+G(p).del.n)}${stat('Rotas com recorde',bests.length)}${stat('Nível',lvInfo(G(p).xp).l)}${stat('Engrenagens',G(p).coins.toLocaleString('pt-BR'),'text-white')}</div></section>${bmiCard(p)}
+   ${pinRow(p)}<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">${stat('Quilometragem total',km.toFixed(1)+' km')}${stat('Tempo total',fmt(t))}${stat('Treinos',h.length+G(p).del.n)}${stat('Rotas com recorde',bests.length)}${stat('Nível',lvInfo(G(p).xp).l)}${stat('Engrenagens',G(p).coins.toLocaleString('pt-BR'),'text-white')}</div><div class="mt-3">${calBox(p,'bg-ink')}</div></section>${bmiCard(p)}
   <div class="grid md:grid-cols-2 gap-4"><section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-0.5">Melhores tempos</h3><div class="flex items-center gap-2 mb-2"><label for="bestMode" class="text-xs text-zinc-500 shrink-0">Modo de inclinação</label><select id="bestMode" onchange="setBestFilter(this.value)" aria-label="Filtrar melhores tempos por modo de inclinação" class="${IN} !w-auto !py-1 flex-1 sm:flex-none">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${bm===k?'selected':''}>${v.n}</option>`).join('')}<option value="all" ${bm==='all'?'selected':''}>Todos os modos</option></select></div>
    ${bests.length?bests.map(x=>`<button onclick="routeDetail('${x.r.id}')" class="w-full flex justify-between py-2 border-b border-line last:border-0 text-left hover:text-neon"><span class="truncate">${esc(x.r.name)}</span><span class="tabular-nums text-neon">${fmt(x.t)}</span></button>`).join(''):`<p class="text-sm text-zinc-400">${bm==='all'?'Conclua uma rota inteira para registrar seu primeiro recorde.':'Nenhum recorde neste modo ainda. Conclua uma rota inteira com a inclinação '+INT[bm].n+'.'}</p>`}</section>
   <section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-2">Histórico de treinos</h3>
@@ -1469,12 +1683,12 @@ function placeRider(){const el=document.getElementById('m-rider'),mp=document.ge
   el.style.transform=`translate(${(ox+(q.x+q.pad)*k).toFixed(1)}px,${(oy+(q.y+q.pad)*k).toFixed(1)}px)`;el.style.visibility='visible'}
 addEventListener('resize',placeRider);
 /* atributos do mascote equipado, no canto do mapa durante o treino: acesos = em efeito agora (subida/plano/descida dependem da inclinação) */
-function attrsOverlay(){const p=profile(),m=p&&MASCOTS[p.mascot],box=(h,body)=>`<div id="m-attrs" class="mat-box absolute right-0 bottom-0 z-[2] pointer-events-none" aria-label="Bônus do mascote">${h}${body}</div>`;
+function attrsOverlay(){const p=profile(),m=p&&MASCOTS[p.mascot],box=(h,body)=>`<div id="m-attrs" class="mat-box mat-flow" aria-label="Bônus do mascote">${h}${body}</div>`;
   if(!m)return box('<div class="mat-h">Sem mascote</div>','<div class="mat" style="color:#9ca3af;font-weight:500">Adote um na Loja para ganhar bônus</div>');
   const head=`<div class="mat-h"><span style="font-size:13px;letter-spacing:0">${m.icon}</span>Bônus do mascote</div>`;
   if(!m.fx.length)return box(head,'<div class="mat" style="color:#9ca3af;font-weight:500">Este mascote não tem bônus</div>');
   const fx=petFx(p);
-  return box(head,`<div class="flex flex-col gap-1">${m.fx.map(id=>`<div class="mat off" data-a="${id}"><i data-lucide="${PET_ATTR[id].ic}" class="w-4 h-4 shrink-0 text-emerald-300"></i><span>${esc(PET_ATTR[id].n)}</span><span class="val tabular-nums">${cardTxt(id,fx[id]||0)}</span></div>`).join('')}</div>`)}
+  return box(head,`<div class="mat-grid">${m.fx.map(id=>`<div class="mat off" data-a="${id}"><i data-lucide="${PET_ATTR[id].ic}" class="w-4 h-4 shrink-0 text-emerald-300"></i><span>${esc(PET_ATTR[id].n)}</span><span class="val tabular-nums">${cardTxt(id,fx[id]||0)}</span></div>`).join('')}</div>`)}
 /* acesos = bônus em efeito agora (subida/plano/descida dependem da inclinação do trecho; zumbi só na Fuga da Horda); os demais ficam esmaecidos */
 function updAttrs(g){const box=document.getElementById('m-attrs');if(!box)return;const k=INT[S.inten].k;
   box.querySelectorAll('[data-a]').forEach(e=>{const id=e.dataset.a;let on=true;
@@ -1680,7 +1894,7 @@ function conquistas(){const p=profile(),A=ACH(p),c=achCtx(p,A),got=BADGES.filter
       :`<div class="h-1.5 rounded-full bg-line mt-2 overflow-hidden"><div class="h-full bg-neon" style="width:${(v/b.g*100).toFixed(1)}%"></div></div><div class="text-[11px] text-zinc-500 mt-1 tabular-nums">${badgeVal(b,c)} / ${b.g.toLocaleString('pt-BR')}${b.u?' '+b.u:''}</div>`}</div></article>`};
   const chips=[['all','Todas'],['on','Desbloqueadas'],['off','Bloqueadas']].map(([k,l])=>`<button onclick="setAchF('${k}')" class="px-3 py-1.5 rounded-full text-xs font-semibold border ${f===k?'bg-brand border-brand text-white':'border-line text-zinc-400 hover:text-white'}">${l}</button>`).join('');
   const groups=BADGE_CATS.map(cat=>{const list=BADGES.filter(b=>b.cat===cat&&(f==='all'||(f==='on')===!!A.u[b.id]));
-    return list.length?`<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-3">${cat} <span class="text-sm font-sans font-normal text-zinc-500">${list.filter(b=>A.u[b.id]).length}/${list.length}</span></h3><div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">${list.map(card).join('')}</div></section>`:''}).join('');
+    return list.length?`<section class="rounded-2xl bg-panel border border-line p-4"><h3 class="font-display text-2xl font-bold mb-3">${cat} <span class="text-sm font-sans font-normal text-zinc-500">${list.filter(b=>A.u[b.id]).length}/${list.length}</span></h3><div data-fit4="ach-${cat}" class="fit4"><div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">${list.map(card).join('')}</div></div></section>`:''}).join('');
   return `<div class="space-y-4"><section class="rounded-2xl bg-panel border border-line p-4"><div class="flex items-center gap-3 flex-wrap"><i data-lucide="award" class="w-7 h-7 text-neon"></i><div class="flex-1 min-w-[180px]"><h2 class="font-display text-3xl font-bold leading-none">Conquistas</h2><div class="text-sm text-zinc-400 mt-1">${got} de ${tot} medalhas desbloqueadas</div><div class="h-1.5 rounded-full bg-line mt-1.5 overflow-hidden max-w-xs"><div class="h-full bg-neon" style="width:${(got/tot*100).toFixed(1)}%"></div></div></div></div>
    <div class="mt-4 border-t border-line pt-3"><div class="text-xs text-zinc-400 mb-2">Medalhas em destaque no perfil (${A.pin.length}/${BADGE_MAX_PIN}) · fixe as desbloqueadas pelos botões abaixo</div><div class="flex gap-3 flex-wrap">${[0,1,2].map(pinned).join('')}</div></div></section>
    <div class="flex gap-2 flex-wrap">${chips}</div>${groups||'<p class="text-sm text-zinc-400">Nenhuma medalha neste filtro.</p>'}</div>`}
@@ -1698,7 +1912,7 @@ function partialModal(r){modalLock=true;haptic('level');
   $('#modal').innerHTML=`<div class="fixed inset-0 z-[60] bg-black/45 flex items-center justify-center p-4"><div role="alertdialog" aria-modal="true" aria-label="Resumo do treino" class="bodyin w-full max-w-sm rounded-3xl border-2 border-neon/60 bg-panel p-5 overflow-y-auto shadow-[0_20px_70px_rgba(0,0,0,.75),0_0_40px_rgba(106,195,255,.28)]" style="max-height:88vh;max-height:88dvh">
    <div class="text-center">${sumHead()}<div class="text-[11px] uppercase tracking-wider text-zinc-400">Treino parcial</div><h2 class="font-display text-3xl font-bold leading-tight break-words">${esc(r.routeName||'Treino')}</h2>
    <div class="mt-2 h-1.5 rounded-full bg-line overflow-hidden"><div class="h-full bg-ember" style="width:${pct}%"></div></div><div class="text-xs text-zinc-400 mt-1">${pct}% da rota percorrida</div></div>
-   <div class="grid grid-cols-2 gap-2 mt-4">${box('route','Distância',r.dist.toFixed(2)+' km')}${box('timer','Tempo',fmt(r.time))}${box('gauge','Vel. média',r.avgSpd.toFixed(1)+' km/h')}${r.avgHr?box('heart-pulse','FC média',r.avgHr+' bpm','text-ember'):''}</div>
+   <div class="grid grid-cols-2 gap-2 mt-4">${box('route','Distância',r.dist.toFixed(2)+' km')}${box('timer','Tempo',fmt(r.time))}${box('gauge','Vel. média',r.avgSpd.toFixed(1)+' km/h')}${r.avgHr?box('heart-pulse','FC média',r.avgHr+' bpm','text-ember'):''}${box('flame','Calorias',(r.kcal||0).toLocaleString('pt-BR')+' kcal','text-neon')}</div>
    <div class="text-[11px] uppercase tracking-wider text-zinc-400 mt-4 mb-1.5">Ganhos do treino</div>
    <div class="grid grid-cols-${pm?3:2} gap-2">${box('cog','Engrenagens','+'+nf(r.coins),'text-white')}${box('sparkles','XP corredor','+'+nf(r.xp),'text-emerald-300')}${pm?box('paw-print','XP '+esc(pm.icon),'+'+nf(r.pet?r.pet.xp:0),'text-emerald-300'):''}</div>
    ${pm?'':`<div class="text-[11px] text-zinc-500 mt-1">Sem mascote equipado: adote um na Loja para ele ganhar XP também.</div>`}
@@ -1715,7 +1929,7 @@ function xpBars(r){const p=profile();if(!p||r.xp0==null)return '';
   return `<div class="space-y-3 rounded-xl bg-ink border border-line p-3 mb-3 text-left">${h}</div>`}
 function resultModal(r){haptic('level');
   openModal(`<div class="text-center py-2">${sumHead()}<h2 class="font-display text-4xl font-bold ${r.done?'text-emerald-300':'text-white'}">${r.done?'Treino concluído!':'Treino salvo'}</h2>
-   <div class="grid grid-cols-3 gap-2 my-4 text-center">${[['Distância',r.dist.toFixed(2)+' km'],['Tempo',fmt(r.time)],['Engrenagens','+'+r.coins.toLocaleString('pt-BR')]].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
+   <div class="grid grid-cols-2 gap-2 my-4 text-center">${[['Distância',r.dist.toFixed(2)+' km'],['Tempo',fmt(r.time)],['Engrenagens','+'+r.coins.toLocaleString('pt-BR')],['Calorias',(r.kcal||0).toLocaleString('pt-BR')+' kcal']].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
    ${xpLines(r)}${xpBars(r)}${extrasHtml(r)}<button onclick="closeModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Continuar</button></div>`,'max-w-sm')}
 /* ---------- Loja ---------- */
 const woBusy=()=>S.wo.dist>0||S.wo.running||S.wo.arming||S.wo.auto;
@@ -1726,10 +1940,10 @@ function loja(){const p=profile(),g=G(p),I=lvInfo(g.xp);
    <div class="flex items-center gap-2 rounded-xl bg-ink border border-line px-4 py-2"><i data-lucide="cog" class="w-6 h-6 text-white"></i><div><div class="text-[11px] text-zinc-400 leading-none">Engrenagens</div><div class="font-display text-3xl font-bold text-white leading-tight tabular-nums">${g.coins.toLocaleString('pt-BR')}</div></div></div></section>
   <section class="rounded-2xl bg-panel border border-line p-4"><div class="flex items-center gap-2 mb-1"><i data-lucide="sparkles" class="w-5 h-5 text-neon"></i><h3 class="font-display text-2xl font-bold">Personalização de perfil</h3></div>
    <p class="text-sm text-zinc-400 mb-3">Bordas e molduras para a sua foto, do Papel ao LED RGB: aparecem no perfil, na loja e no ranking. Cada uma libera em um nível (a distância entre eles vai aumentando até o nível 100) e é comprada com engrenagens. No Neon você escolhe a cor.</p>
-   <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">${FRAME_LIST.map(f=>frameCard(f,p,I.l,g.coins)).join('')}</div></section>
+   <div data-hs="frames" class="flex gap-3 overflow-x-auto overflow-y-hidden pb-2 snap-x" onwheel="hWheel(event)">${FRAME_LIST.map(f=>`<div class="w-44 sm:w-48 shrink-0 snap-start [&>*]:h-full">${frameCard(f,p,I.l,g.coins)}</div>`).join('')}</div></section>
   <section class="rounded-2xl bg-panel border border-line p-4"><div class="flex items-center gap-2 mb-1"><i data-lucide="paw-print" class="w-5 h-5 text-neon"></i><h3 class="font-display text-2xl font-bold">Mascotes</h3></div>
    <p class="text-sm text-zinc-400 mb-3">Seu mascote vira um subperfil ao lado da sua foto. Você começa sem nenhum: quanto mais raro, mais caro, mais alto o nível exigido e mais atributos ele tem. Ele ganha o mesmo XP que você nos treinos em que estiver equipado e, ao subir de nível, os atributos ficam mais fortes (até o nível ${PET_MAX}).</p>${petPanel(p)}
-   <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">${MASCOT_LIST.map(m=>mascotCard(m,p,I.l,g.coins)).join('')}</div></section></div>`}
+   <div data-hs="pets" class="flex gap-3 overflow-x-auto overflow-y-hidden pb-2 snap-x" onwheel="hWheel(event)">${MASCOT_LIST.map(m=>`<div class="w-44 sm:w-48 shrink-0 snap-start [&>*]:h-full">${mascotCard(m,p,I.l,g.coins)}</div>`).join('')}</div></section></div>`}
 const unlocksAt=l=>Object.entries(FEAT).filter(([,v])=>v===l).map(([k])=>k==='horda'?'Modo Fuga da Horda':'Ghost do líder do ranking').concat(FRAME_LIST.filter(f=>f.lv===l).map(f=>'Moldura de perfil: '+f.name),MASCOT_LIST.filter(m=>m.min_level===l).map(m=>'Mascote: '+m.name));
 function levelModal(l){haptic('level');const u=unlocksAt(l);
   openModal(`<div class="text-center py-2"><div class="mx-auto w-24 h-24 rounded-full grid place-items-center border-4 border-emerald-400 font-display text-5xl font-extrabold text-emerald-300" style="box-shadow:0 0 28px rgba(52,211,153,.6)">${l}</div><h2 class="font-display text-4xl font-bold mt-3">Subiu de nível!</h2><p class="text-zinc-300 text-sm mt-1">Você chegou ao nível ${l}.</p>
@@ -1739,7 +1953,7 @@ function levelModal(l){haptic('level');const u=unlocksAt(l);
 /* ---------- Biblioteca de Rotas ---------- */
 function rotas(){
   return `<div class="flex items-center justify-between mb-4 gap-3 flex-wrap"><h2 class="font-display text-4xl font-bold">Biblioteca de rotas</h2>
-   <button onclick="$('#gpxFile').click()" class="px-4 py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i>Importar .GPX</button></div>
+   <button onclick="S.mrLib=false;$('#gpxFile').click()" class="px-4 py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i>Importar .GPX</button></div>
   <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">${S.routes.map(r=>{const b=userBest(r),es=elevStats(r.elev);
    return `<article class="rounded-2xl bg-panel border border-line overflow-hidden flex flex-col"><button onclick="routeDetail('${r.id}')" class="text-left">${cover(r)}</button>
     <div class="p-4 flex-1 flex flex-col gap-2"><h3 class="font-display text-2xl font-bold leading-tight">${esc(r.name)}</h3>
@@ -1757,7 +1971,7 @@ function routeDetail(id){const r=S.routes.find(x=>x.id===id);if(!r)return;const 
    <h3 class="font-display text-2xl font-bold mt-3">Ranking completo</h3><ol class="text-sm divide-y divide-line">${rankHtml(board(r),20)}</ol>
    <div class="flex gap-2 mt-4"><button onclick="editRoute('${r.id}')" class="flex-1 py-2.5 rounded-lg border border-line flex items-center justify-center gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>Editar</button><button onclick="delRoute('${r.id}')" class="py-2.5 px-4 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember"><i data-lucide="trash-2" class="w-4 h-4"></i></button><button onclick="trainOn('${r.id}')" class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">Treinar</button></div>`,'max-w-2xl')}
 function delRoute(id){if(!confirm('Excluir esta rota da biblioteca?'))return;S.routes=S.routes.filter(r=>r.id!==id);if(S.wo.route===id)S.wo.route=null;saveRoutes();q({t:'del',tb:'routes',col:'id',val:id});closeModal();render()}
-function editRoute(id,isNew=false){const r=isNew?S.edit:S.routes.find(x=>x.id===id);S.edit={...r,isNew};
+function editRoute(id,isNew=false){const r=isNew?S.edit:(S.mrLib?S.mrRoutes:S.routes).find(x=>x.id===id);S.edit={...r,isNew};
   openModal(`<h2 class="font-display text-3xl font-bold mb-4">${isNew?'Salvar rota importada':'Editar rota'}</h2><form onsubmit="saveRoute(event)" class="space-y-3">
    <label class="block text-sm">Nome da rota<input name="rn" required maxlength="60" value="${esc(r.name)}" class="${IN} mt-1"></label>
    <label class="block text-sm">Descrição<textarea name="rd" rows="3" maxlength="300" class="${IN} mt-1">${esc(r.desc)}</textarea></label>
@@ -1766,9 +1980,9 @@ function editRoute(id,isNew=false){const r=isNew?S.edit:S.routes.find(x=>x.id===
    <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-lg border border-line">Cancelar</button><button class="flex-1 py-2.5 rounded-lg bg-brand text-white font-semibold">${isNew?'Adicionar à biblioteca':'Salvar alterações'}</button></div></form>`)}
 function saveRoute(e){e.preventDefault();const f=e.target.elements,r={...S.edit};
   r.name=f.rn.value.trim();r.desc=f.rd.value.trim();r.photo=f.rp.value.trim();r.dist=+f.rk.value;
-  const isNew=r.isNew;delete r.isNew;
-  if(isNew)S.routes.unshift(r);else S.routes=S.routes.map(x=>x.id===r.id?r:x);
-  S.edit=null;saveRoutes();q({t:'up',tb:'routes',row:rRow(r)});closeModal();toast(isNew?'Rota adicionada':'Rota atualizada');render()}
+  const isNew=r.isNew;delete r.isNew;const mrl=S.mrLib,L=mrl?S.mrRoutes:S.routes;
+  if(isNew)L.unshift(r);else{const i=L.findIndex(x=>x.id===r.id);if(i>=0)L[i]=r}
+  S.edit=null;if(mrl){store('cad_mr_routes',S.mrRoutes);mrQ({t:'up',tb:'maratona_routes',row:rRow(r)})}else{saveRoutes();q({t:'up',tb:'routes',row:rRow(r)})}closeModal();toast(isNew?'Rota adicionada':'Rota atualizada');render()}
 
 /* ---------- Importação GPX ---------- */
 function hav(a,b){const R=6371,t=x=>x*Math.PI/180,dLa=t(b[0]-a[0]),dLo=t(b[1]-a[1]);
@@ -1807,12 +2021,188 @@ function restoreWo(remote){let sv=load('cad_wo',null);
     Object.assign(S.wo,sv,{running:false,last:Date.now(),armed:false,auto:false});if(hadGh){const rr=S.routes.find(x=>x.id===S.wo.route);S.wo.gh=rr?ghostFor(rr):null}S.wo.evCur=null;S.wo.evs.forEach(x=>{if(x.st==='on')x.st='lost'});S.tab='treino';
     setTimeout(()=>toast('Treino anterior restaurado. Reconecte os sensores e toque em Retomar'),400)}}
 /* Ao abrir o app sempre vai para a seleção de perfil; o último perfil só é usado para carregar os dados */
+
+/* =====================================================================================================================
+   MODO MARATONA — corrida online 1 x 1 na mesma pista (2 aparelhos, 2 bikes)
+   · Transporte: Supabase Realtime BROADCAST no canal "maratona:CÓDIGO" (sem tabelas; só as rotas exclusivas usam maratona_routes).
+   · Cada aparelho mede e integra a PRÓPRIA distância (a bike de cada um é a fonte da verdade) e envia ao outro: distância virtual (já com
+     inclinação), velocidade, cadência, FC, kcal e tempo. Envio: a cada leitura nova do sensor, no máx. 1 pacote a cada 400 ms, mais um
+     "batimento" a cada 1 s mesmo parado. Pacotes têm número de sequência (atrasados/fora de ordem são descartados).
+   · Quem recebe não "pula": estima a posição do adversário entre pacotes (distância + velocidade × tempo, no máx. 2,5 s) e suaviza o movimento.
+   · Largada sincronizada: o anfitrião é a referência de relógio. O convidado mede o desvio (ping/pong, usa a menor latência) e todos
+     largam no mesmo instante; o tempo da prova é o relógio compartilhado (não depende de pausas locais; não existe pausa na Maratona).
+   · A sala leva um "snapshot" da rota (traçado + altimetria + distância): o convidado não precisa ter a rota. Inclinação da prova = a do anfitrião.
+   · Rotas exclusivas: S.mrRoutes (localStorage cad_mr_routes + tabela maratona_routes), nunca aparecem na biblioteca clássica.
+   ===================================================================================================================== */
+const mrNow=()=>Date.now()+(S.mr.off||0);
+const mrOn=()=>S.wo.mode==='maratona';
+const mrCode=()=>Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random()*24|0]).join('');
+const mrWho=()=>{const p=profile();return{cid:S.mr.cid,id:S.cur,name:p.name,lv:lvInfo(G(p).xp).l}};
+function mrSendEv(ev,pl){const m=S.mr;if(!m.ch)return;try{m.ch.send({type:'broadcast',event:ev,payload:{...pl,from:m.cid}})}catch(e){}}
+function mrQ(op){if(S.mrTb)q(op)}
+function mrAv(o,size){const p=S.profiles.find(x=>x.id===o.id);return avatar(p||{name:o.name||'?',photo:'',frame:''},size)}
+function mrOpen(code,host){
+  if(!sb){toast('A Maratona precisa do Supabase configurado');return false}
+  const m=S.mr;
+  m.ch=sb.channel('maratona:'+code,{config:{broadcast:{self:false,ack:false},presence:{key:m.cid}}});
+  ['room','join','full','rdy','go','pos','fin','ping','pong','bye'].forEach(ev=>m.ch.on('broadcast',{event:ev},({payload})=>mrRecv(ev,payload||{})));
+  m.ch.on('presence',{event:'leave'},({key})=>{if(m.op&&m.op.cid===key)mrPeerGone()});
+  m.ch.subscribe(st=>{
+    if(st==='SUBSCRIBED'){m.ch.track({cid:m.cid});if(!host)mrSendEv('join',{who:mrWho()})}
+    else if(st==='CHANNEL_ERROR'||st==='TIMED_OUT'){toast('Sem conexão em tempo real. Verifique a internet e o Realtime do Supabase')}});
+  return true}
+function mrSync(){const m=S.mr;let n=0;const t=setInterval(()=>{if(!m.ch||++n>6){clearInterval(t);return}mrSendEv('ping',{t0:Date.now()})},350)}
+function mrRecv(ev,d){const m=S.mr,o=m.op;
+  if(d.to&&d.to!==m.cid)return;
+  switch(ev){
+   case 'join':{if(!m.host)return;if(m.ph!=='room'||(o&&o.cid!==d.from)){mrSendEv('full',{to:d.from});return}
+     m.op={...d.who,rdy:false};m.rdy=false;mrSendEv('room',{to:d.from,route:m.route,inten:m.inten,who:mrWho()});toast(d.who.name+' entrou na sala');if(S.tab==='maratona')render();break}
+   case 'room':{if(m.host)return;m.route=d.route;m.inten=d.inten;m.op={...d.who,rdy:false};clearTimeout(m.jt);mrSync();if(S.tab==='maratona')render();break}
+   case 'full':if(!m.host){toast('Esta sala já tem dois ciclistas');mrLeave()}break;
+   case 'ping':if(m.host)mrSendEv('pong',{to:d.from,t0:d.t0,th:Date.now()});break;
+   case 'pong':{const t1=Date.now(),rtt=t1-d.t0;if(rtt<m.rtt){m.rtt=rtt;m.off=d.th+rtt/2-t1}if(S.tab==='maratona'&&m.ph==='room')render();break}
+   case 'rdy':if(o&&d.from===o.cid){o.rdy=!!d.rdy;if(S.tab==='maratona')render();mrCheckGo()}break;
+   case 'go':if(!m.host&&m.ph==='room'&&m.route)mrBegin(d.startAt);break;
+   case 'pos':{if(!o||d.from!==o.cid||!(d.q>(o.q||0)))return;
+     Object.assign(o,{q:d.q,d:d.d,v:d.v,s:d.s,c:d.c,h:d.h,k:d.k,t:d.t,rx:performance.now()});if(!o.ab)o.left=false;if(o.disp==null)o.disp=d.d;break}
+   case 'fin':{if(!o||d.from!==o.cid)return;if(d.done)o.fin=d.t;else{o.ab=true;o.left=true}document.querySelectorAll('.mr-res').forEach(e=>e.innerHTML=mrResHtml());break}
+   case 'bye':if(o&&d.from===o.cid)mrPeerGone();break}}
+function mrCheckGo(){const m=S.mr;if(m.host&&m.ph==='room'&&m.rdy&&m.op&&m.op.rdy){const t=Date.now()+6000;mrSendEv('go',{startAt:t});mrBegin(t)}}
+function mrBegin(t){const m=S.mr;m.startAt=t;m.ph='cd';m.cdN=0;m.my=null;
+  if(INT[m.inten]){m.prevInten=S.inten;S.inten=m.inten}
+  resetWo();Object.assign(S.wo,{route:m.route.id,mode:'maratona',arming:true,mult:1,gh:null});
+  S.tab='maratona';wakeOn();render();clearInterval(m.cdT);m.cdT=setInterval(mrCd,100);mrCd()}
+function mrCd(){const m=S.mr,l=m.startAt-mrNow();
+  if(l<=0){clearInterval(m.cdT);mrStart();return}
+  const n=Math.ceil(l/1000);
+  if(n!==m.cdN){m.cdN=n;const e=$('#mr-cd');if(e){e.textContent=n;e.style.animation='none';void e.offsetWidth;e.style.animation='cdpop .9s ease-out both'}if(n<=3)sfx('count')}}
+function mrStart(){const m=S.mr,w=S.wo;if(m.ph!=='cd')return;
+  w.arming=false;w.running=true;w.last=Date.now();w.trace=[[0,0]];w.trLast=0;w.armed=true;m.ph='race';m.tx=0;m.seq=0;sfx('go');render();mrLoop()}
+/* envio das métricas (ver cabeçalho): chamado a cada leitura do sensor e a cada 1 s */
+function mrSend(){const m=S.mr,w=S.wo;if(m.ph!=='race'||!mrOn()||!w.running)return;
+  const n=performance.now();if(n-m.tx<400)return;m.tx=n;
+  const r=route(),L=live(),f=factor(grade(r,Math.min(1,w.dist/r.dist)));
+  mrSendEv('pos',{q:++m.seq,d:+w.dist.toFixed(4),v:+(L.spd*f).toFixed(1),s:+L.spd.toFixed(1),c:Math.round(L.cad||0),h:Math.round(L.hr||0),k:Math.round(kcalWo(w,profile())),t:+w.secs.toFixed(1)})}
+function mrLoop(){const m=S.mr;if(m.loop)return;m.loop=true;let last=0;
+  const f=t=>{if(S.mr.ph!=='race'){S.mr.loop=false;return}if(S.tab==='maratona'&&t-last>=80){last=t;mrPaint(t)}requestAnimationFrame(f)};requestAnimationFrame(f)}
+function mrPaint(t){const m=S.mr,o=m.op,r=m.route,w=S.wo;if(!r||!mrOn())return;
+  const my=Math.min(r.dist,w.dist+(w.running?live().spd*factor(grade(r,Math.min(1,w.dist/r.dist)))/3600*Math.min(1.5,(Date.now()-w.last)/1000):0));
+  if(o&&o.d!=null){const od=o.fin!=null?r.dist:Math.min(r.dist,o.d+(o.left?0:o.v/3600*Math.min(2.5,(performance.now()-o.rx)/1000)));o.disp=o.disp==null?od:o.disp+(od-o.disp)*.25}
+  const at=(id,d)=>{const e=document.getElementById(id);if(!e)return;const{pos}=trackPos(getTrack(r),Math.min(1,d/r.dist)),pp=mapPx(pos[0],pos[1]);
+    if(pp){e.style.transform=`translate(${pp[0].toFixed(1)}px,${pp[1].toFixed(1)}px)`;e.style.visibility='visible'}};
+  at('mr-me',my);if(o&&o.d!=null)at('mr-op',o.disp||0);
+  if(t-(m.tt||0)>=250){m.tt=t;mrTxt(my)}}
+function mrTxt(my){const m=S.mr,o=m.op,r=m.route;if(!o)return;
+  const off=o.left||o.rx==null||performance.now()-o.rx>8000;
+  set('op-spd',o.s!=null?o.s.toFixed(1):'--');set('op-cad',o.c!=null?o.c:'--');set('op-hr',o.h?o.h:'--');set('op-dist',(o.disp||0).toFixed(2));set('op-time',o.t!=null?fmt(o.t):'--');
+  const b=$('#op-bar');if(b)b.style.width=Math.min(100,(o.disp||0)/r.dist*100)+'%';
+  const g=$('#mr-gap');if(g&&o.d!=null){const d=(my-(o.disp||0))*1000,ah=d>=0,eq=Math.abs(d)<5;g.textContent=eq?'Lado a lado':Math.round(Math.abs(d))+' m '+(ah?'à frente':'atrás');g.className='font-display text-xl font-bold '+(eq?'text-white':ah?'text-emerald-300':'text-ember')}
+  const s=$('#mr-sig');if(s){s.textContent=o.fin!=null?'finalizou':o.ab?'abandonou':off?'sem sinal':'ao vivo';s.className=o.fin==null&&off?'text-red-400':'text-emerald-300'}}
+/* fim de prova (chamado por finish) */
+function mrFinished(res){const m=S.mr;m.my={done:res.done,t:res.time,dist:res.dist};
+  mrSendEv('fin',{t:res.time,done:res.done});
+  if(m.prevInten){S.inten=m.prevInten;m.prevInten=null}
+  if(!res.done){mrLeave(true);render();setTimeout(()=>partialModal(res),350);return}
+  m.ph='done';render();setTimeout(()=>mrResultModal(res),350)}
+function mrAbandon(){if(!confirm('Abandonar a corrida? O treino parcial fica salvo.'))return;
+  finish(false);if(S.mr.ph==='race'){mrSendEv('fin',{done:false});mrLeave()}}
+function mrPeerGone(){const m=S.mr,o=m.op;if(!o||m.ph==='lobby')return;
+  if(m.ph==='room'){if(!m.host){toast('O anfitrião saiu da sala');mrLeave();return}m.op=null;m.rdy=false;toast('O adversário saiu da sala');if(S.tab==='maratona')render();return}
+  if(m.ph==='cd'){toast('O adversário saiu antes da largada');mrLeave();return}
+  o.left=true;toast('O adversário desconectou');document.querySelectorAll('.mr-res').forEach(e=>e.innerHTML=mrResHtml())}
+function mrLeave(silent){const m=S.mr;clearInterval(m.cdT);clearTimeout(m.jt);
+  if(m.ch){mrSendEv('bye',{});const c=m.ch;m.ch=null;setTimeout(()=>{try{sb.removeChannel(c)}catch(e){}},300)}
+  if(m.prevInten){S.inten=m.prevInten;m.prevInten=null}
+  if(mrOn())resetWo();
+  Object.assign(m,{ph:'lobby',room:'',host:false,route:null,op:null,rdy:false,startAt:0,off:0,rtt:1e9,my:null,loop:false});
+  if(!silent)render()}
+function mrCreate(id){const m=S.mr,r=S.mrRoutes.find(x=>x.id===id);if(!r)return;
+  if(woBusy()){toast('Finalize o treino atual antes de criar a sala');return}
+  m.route={id:r.id,name:r.name,desc:r.desc||'',dist:r.dist,elev:r.elev,track:r.track||null,demo:!!r.demo};
+  Object.assign(m,{room:mrCode(),host:true,inten:INT[m.inten]?m.inten:S.inten,op:null,rdy:false,off:0,rtt:0,ph:'room'});
+  if(!mrOpen(m.room,true)){m.ph='lobby';m.route=null;return}render()}
+function mrJoin(code){const m=S.mr;code=String(code||'').trim().toUpperCase();
+  if(code.length!==4){toast('Digite o código de 4 letras');return}
+  if(woBusy()){toast('Finalize o treino atual antes de entrar na sala');return}
+  Object.assign(m,{room:code,host:false,route:null,op:null,rdy:false,off:0,rtt:1e9,ph:'room'});
+  if(!mrOpen(code,false)){m.ph='lobby';return}
+  m.jt=setTimeout(()=>{if(!S.mr.route){toast('Sala não encontrada');mrLeave()}},7000);render()}
+function mrReady(){const m=S.mr;if(m.ph!=='room'||!m.op)return;
+  if(!m.rdy&&!(S.sim.on||S.bt.ftms)){toast('Conecte a bike na Home antes de ficar pronto');return}
+  m.rdy=!m.rdy;mrSendEv('rdy',{rdy:m.rdy});render();mrCheckGo()}
+function mrCopy(){try{navigator.clipboard.writeText(S.mr.room).then(()=>toast('Código copiado'))}catch(e){toast('Código: '+S.mr.room)}}
+async function mrPull(){try{const R=(await fetchAll('maratona_routes','created_at',false)).map(fromR),ids=new Set(R.map(x=>x.id));
+    S.mrRoutes.filter(x=>!x.demo&&!ids.has(x.id)).forEach(x=>q({t:'up',tb:'maratona_routes',row:rRow(x)}));
+    S.mrRoutes=[...R,...S.mrRoutes.filter(x=>!ids.has(x.id))];store('cad_mr_routes',S.mrRoutes)}
+  catch(e){S.mrTb=false;console.warn('maratona_routes indisponível (rode o SQL do topo do arquivo)',e)}}
+function mrDelRoute(id){if(!confirm('Excluir esta rota da Maratona?'))return;
+  S.mrRoutes=S.mrRoutes.filter(r=>r.id!==id);store('cad_mr_routes',S.mrRoutes);mrQ({t:'del',tb:'maratona_routes',col:'id',val:id});render()}
+function mrEdit(id){S.mrLib=true;editRoute(id)}
+/* ---------- telas ---------- */
+const mrBusyCard=()=>`<div class="p-10 text-center rounded-2xl border border-dashed border-line text-zinc-300">Há uma Maratona em andamento.<div class="mt-4"><button onclick="setTab('maratona')" class="px-5 py-2.5 rounded-lg bg-brand text-white font-semibold">Voltar à corrida</button></div></div>`;
+function maratona(){const m=S.mr;
+  if(m.ph==='lobby')return mrLobby();
+  if(m.ph==='room')return mrRoom();
+  if(m.ph==='cd')return mrRoom()+mrCdOverlay();
+  if(m.ph==='done')return `<div class="max-w-md mx-auto space-y-3"><div class="mr-res rounded-2xl bg-panel border border-line p-4">${mrResHtml()}</div><button onclick="mrLeave()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Sair da sala</button></div>`;
+  return mrRace()}
+function mrLobby(){const m=S.mr,bike=S.sim.on||S.bt.ftms;
+  return `<div class="space-y-4"><div class="flex items-center justify-between gap-3 flex-wrap"><div><h2 class="font-display text-4xl font-bold">Maratona</h2><p class="text-sm text-zinc-400">Corra online contra outro ciclista, na mesma pista e ao mesmo tempo.</p></div>
+   <button onclick="S.mrLib=true;$('#gpxFile').click()" class="px-4 py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i>Importar .GPX</button></div>
+  ${bike?'':`<div class="rounded-xl border border-ember/50 bg-ember/10 text-ember text-sm px-3 py-2">Conecte a bike na Home (ou ative a simulação) antes de entrar numa sala.</div>`}
+  <section class="rounded-2xl bg-panel border border-line p-4 flex flex-wrap items-end gap-3">
+   <label class="text-sm flex-1 min-w-[160px]">Entrar com código<input id="mr-code" maxlength="4" autocapitalize="characters" autocomplete="off" placeholder="ABCD" class="${IN} mt-1 uppercase tracking-[.3em] text-center font-display text-xl"></label>
+   <button onclick="mrJoin($('#mr-code').value)" class="px-5 py-2.5 rounded-lg bg-brand text-white font-semibold">Entrar</button>
+   <label class="text-sm w-full sm:w-auto">Inclinação da prova (vale ao criar sala)<select onchange="S.mr.inten=this.value" class="${IN} mt-1">${Object.entries(INT).map(([k,v])=>`<option value="${k}" ${(INT[m.inten]?m.inten:S.inten)===k?'selected':''}>${v.n}</option>`).join('')}</select></label></section>
+  <h3 class="font-display text-2xl font-bold">Rotas da Maratona <span class="text-xs font-sans font-normal text-zinc-500">exclusivas deste modo · escolha uma para criar a sala</span></h3>
+  ${S.mrRoutes.length?'':`<div class="p-8 text-center text-zinc-400 border border-dashed border-line rounded-2xl">Nenhuma rota. Importe um arquivo .GPX.</div>`}
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">${S.mrRoutes.map(r=>{const es=elevStats(r.elev);
+   return `<article class="rounded-2xl bg-panel border border-line overflow-hidden flex flex-col">${cover(r)}<div class="p-4 flex-1 flex flex-col gap-2"><h3 class="font-display text-2xl font-bold leading-tight">${esc(r.name)}</h3>
+    <div class="text-xs text-zinc-400">${r.dist.toFixed(1)} km · +${es.gain} m</div><p class="text-sm text-zinc-300 line-clamp-2">${esc(r.desc)||'Sem descrição.'}</p>
+    <div class="flex gap-2 mt-auto pt-2"><button onclick="mrEdit('${r.id}')" aria-label="Editar" class="px-3 rounded-lg border border-line text-zinc-400 hover:text-white"><i data-lucide="pencil" class="w-4 h-4"></i></button><button onclick="mrDelRoute('${r.id}')" aria-label="Excluir" class="px-3 rounded-lg border border-line text-zinc-400 hover:text-ember hover:border-ember"><i data-lucide="trash-2" class="w-4 h-4"></i></button><button onclick="mrCreate('${r.id}')" class="flex-1 py-2 rounded-lg bg-brand text-white text-sm font-semibold">Criar sala</button></div></div></article>`}).join('')}</div></div>`}
+function mrRoom(){const m=S.mr,r=m.route,o=m.op,p=profile(),synced=m.host||m.rtt<1e9;
+  if(!r)return `<div class="p-10 text-center text-zinc-400">Conectando à sala ${esc(m.room)}…<div class="mt-4"><button onclick="mrLeave()" class="px-4 py-2 rounded-lg border border-line">Cancelar</button></div></div>`;
+  const es=elevStats(r.elev),chip=(ok,t)=>`<span class="shrink-0 text-[11px] font-semibold px-2 py-1 rounded-full border ${ok?'text-emerald-300 border-emerald-400/50 bg-emerald-400/10':'text-zinc-400 border-line'}">${t}</span>`,
+   slot=(av,name,lv,st,ex='')=>`<div class="flex-1 min-w-0 rounded-2xl bg-panel border border-line p-3 flex items-center gap-3">${av}<div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(name)}</div><div class="text-xs text-zinc-400">${lv}</div></div>${st}${ex}</div>`,
+   canSee=o&&S.profiles.some(x=>x.id===o.id);
+  return `<div class="space-y-3 max-w-3xl mx-auto"><section class="rounded-2xl bg-panel border border-neon/30 p-4 text-center"><div class="text-xs text-zinc-400">Código da sala · compartilhe com o adversário</div>
+   <div class="font-display text-6xl font-extrabold tracking-[.25em] text-white pl-[.25em]">${esc(m.room)}</div><button onclick="mrCopy()" class="mt-1 text-sm text-neon underline">Copiar código</button></section>
+   <section class="rounded-2xl bg-panel border border-line overflow-hidden">${cover(r,'h-28')}<div class="p-3"><div class="font-display text-2xl font-bold">${esc(r.name)}</div><div class="text-xs text-zinc-400">${r.dist.toFixed(1)} km · +${es.gain} m · Inclinação: ${INT[m.inten]?INT[m.inten].n:'-'}</div>${elevSvg(r)}</div></section>
+   <div class="flex flex-col sm:flex-row gap-2">${slot(avatar(p,52),p.name,'Nv '+lvInfo(G(p).xp).l+' · você',chip(m.rdy,m.rdy?'Pronto':'Aguardando'))}
+    ${o?slot(mrAv(o,52),o.name,'Nv '+(o.lv||'?'),chip(o.rdy,o.rdy?'Pronto':'Aguardando'),canSee?`<button onclick="visitorView('${esc(o.id)}')" aria-label="Ver perfil" class="shrink-0 p-2 rounded-lg border border-line text-zinc-300 hover:border-neon"><i data-lucide="eye" class="w-4 h-4"></i></button>`:''):`<div class="flex-1 rounded-2xl border border-dashed border-line p-3 flex items-center justify-center text-sm text-zinc-500">Aguardando adversário…</div>`}</div>
+   <div class="flex gap-2"><button onclick="mrReady()" ${o&&synced&&m.ph==='room'?'':'disabled'} class="flex-1 py-3 rounded-xl ${m.rdy?'border border-emerald-400 text-emerald-300':'bg-brand text-white'} font-display text-xl font-bold disabled:opacity-40">${m.rdy?'Cancelar pronto':synced?'Estou pronto':'Sincronizando relógio…'}</button>
+    <button onclick="mrLeave()" class="px-5 py-3 rounded-xl border border-line">Sair</button></div>
+   <p class="text-xs text-zinc-500 text-center">A largada acontece 6 s depois que os dois estiverem prontos. Cada bike mede a própria distância e envia ao outro aparelho em tempo real.</p>${simPanel()}</div>`}
+const mrCdOverlay=()=>`<div class="fixed inset-0 z-40 grid place-items-center" style="background:#05090f"><div class="text-center"><div class="text-zinc-400 text-lg">Largada em</div><div id="mr-cd" class="font-display font-extrabold text-white leading-none" style="font-size:10rem">${Math.max(1,Math.ceil((S.mr.startAt-mrNow())/1000))}</div><div class="text-zinc-400 mt-2">${esc(S.mr.route.name)}</div></div></div>`;
+const mrOv=(id,p,o,ring)=>{const pm=p&&MASCOTS[p.mascot];return `<div id="${id}" class="rdr" style="visibility:hidden" aria-hidden="true"><div class="rdr-in"><div class="rdr-av" style="box-shadow:0 0 0 2px ${ring},0 0 0 9px rgba(255,255,255,.18)">${mrAv(o,40)}</div>${pm?`<div class="rdr-pet">${mascotSlot(p,38)}</div>`:''}</div></div>`};
+function mrRace(){const m=S.mr,r=m.route,o=m.op||{},p=profile(),op=S.profiles.find(x=>x.id===o.id);
+  const mt=(l,id,u)=>`<div class="min-w-0"><div class="text-[10px] text-zinc-400 leading-none">${l}</div><div class="font-display text-xl font-bold tabular-nums leading-tight"><span id="${id}">--</span><span class="text-[10px] font-sans font-normal text-zinc-500 ml-0.5">${u}</span></div></div>`,
+   card=(av,name,lv,k,col,sig)=>`<div class="rounded-2xl bg-panel border ${col} p-2.5 min-w-0"><div class="flex items-center gap-2 mb-1.5">${av}<div class="min-w-0 flex-1"><div class="text-sm font-semibold truncate">${esc(name)}</div><div class="text-[10px] text-zinc-400">${lv}${sig?' · <span id="mr-sig"></span>':''}</div></div></div>
+    <div class="grid grid-cols-4 gap-1">${mt('Veloc.',k+'-spd','km/h')}${mt('Cad.',k+'-cad','rpm')}${mt('FC',k+'-hr','bpm')}${mt('Dist.',k+'-dist','km')}</div></div>`;
+  return `<div class="space-y-3 max-w-5xl mx-auto"><section class="flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-[11px] text-zinc-400">Maratona · sala ${esc(m.room)} · ${r.dist.toFixed(1)} km</div><div class="font-display text-xl font-bold truncate">${esc(r.name)}</div></div>
+    <div class="text-right shrink-0"><div class="text-[11px] text-zinc-400">Tempo</div><div id="m-time" class="font-display text-2xl font-bold tabular-nums">0:00</div></div></section>
+   <div class="grid grid-cols-2 gap-2">${card(avatar(p,40),p.name,'Nv '+lvInfo(G(p).xp).l+' · você','m','border-neon/40',false)}${card(mrAv(o,40),o.name||'Adversário','Nv '+(o.lv||'?'),'op','border-ember/40',true)}</div>
+   <section class="rounded-2xl bg-panel border border-neon/30 p-2.5"><div class="flex justify-between items-center mb-1 gap-2"><span class="text-xs text-zinc-400">Diferença</span><span id="mr-gap" class="font-display text-xl font-bold">--</span><span id="m-prog" class="text-xs text-zinc-400 text-right"></span></div>
+    <div class="h-1.5 rounded-full bg-line overflow-hidden mb-1"><div id="m-bar" class="h-full bg-neon" style="width:0%"></div></div><div class="h-1.5 rounded-full bg-line overflow-hidden mb-2"><div id="op-bar" class="h-full bg-ember" style="width:0%"></div></div>
+    <div class="relative h-[40vh] lg:h-[48vh]"><div class="map-in absolute"><div id="m-map" class="absolute inset-0"></div>${mrOv('mr-op',op,o,'#ffa13d')}${mrOv('mr-me',p,{id:p.id,name:p.name},'#ffffff')}</div></div></section>
+   <section class="rounded-2xl bg-panel border border-line px-3 py-2"><div class="text-[11px] text-zinc-400 mb-1">Altimetria · Virtual <span id="m-fac" class="text-ember font-semibold tabular-nums">×1.00</span> · inclinação <span id="m-grade" class="tabular-nums"></span></div><div id="m-elev" class="h-14 [&>svg]:h-full [&>svg]:w-full"></div></section>
+   <button onclick="mrAbandon()" class="w-full py-3 rounded-xl bg-red-600 text-white font-display text-xl font-bold flex items-center justify-center gap-2"><i data-lucide="flag" class="w-5 h-5"></i>Abandonar</button>${simPanel()}</div>`}
+function mrResHtml(){const m=S.mr,o=m.op||{},my=m.my,p=profile();if(!my||!p)return '';
+  const oTxt=o.fin!=null?fmt(o.fin):o.ab?'Abandonou':o.left?'Desconectou':'Pedalando… '+(o.d||0).toFixed(1)+' km',
+   second=o.fin!=null&&o.fin<=my.t,
+   head=second?'Você terminou em 2º':o.fin!=null?'Vitória!':(o.ab||o.left)?'Vitória por abandono':'Você chegou primeiro!',
+   row=(av,n,t,c)=>`<div class="flex items-center gap-3 rounded-xl bg-ink border border-line p-2.5">${av}<div class="flex-1 min-w-0 truncate font-semibold">${esc(n)}</div><div class="font-display text-xl font-bold tabular-nums ${c}">${t}</div></div>`;
+  return `<h2 class="font-display text-4xl font-bold text-center mb-3 ${second?'text-white':'text-emerald-300'}">${head}</h2><div class="space-y-2">${row(avatar(p,40),p.name+' (você)',fmt(my.t),'text-neon')}${row(mrAv(o,40),o.name||'Adversário',oTxt,'text-ember')}</div>`}
+function mrResultModal(res){haptic('level');
+  openModal(`<div class="py-2"><div class="mr-res">${mrResHtml()}</div><div class="grid grid-cols-2 gap-2 my-4 text-center">${[['Distância',res.dist.toFixed(2)+' km'],['Vel. média',res.avgSpd.toFixed(1)+' km/h'],['Engrenagens','+'+res.coins.toLocaleString('pt-BR')],['Calorias',(res.kcal||0).toLocaleString('pt-BR')+' kcal']].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
+   ${xpLines(res)}${xpBars(res)}${extrasHtml(res)}<button onclick="closeModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Continuar</button></div>`,'max-w-sm')}
+window.addEventListener('pagehide',()=>{if(S.mr.ch)mrSendEv('bye',{})});
 let bootRemote;
 async function boot(){
   if(!sb){bootRemote=null;applyInten();render();return}
   $('#app').innerHTML='<main class="min-h-screen grid place-items-center text-zinc-400">Carregando dados…</main>';
   S.cur=S.lastCur;let remote=null;
-  try{await flush();if(outbox.length)throw new Error('pendente');remote=await pull();setSync('ok')}
+  try{await flush();if(outbox.length)throw new Error('pendente');remote=await pull();await mrPull();setSync('ok')}
   catch(e){console.error(e);setSync('err');toast('Sem conexão com o Supabase: usando os dados salvos neste aparelho')}
   S.cur=null;bootRemote=remote;applyInten();render()}
 boot();
