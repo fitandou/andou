@@ -169,6 +169,7 @@ window.addEventListener('error',function(e){show('Não foi possível iniciar o a
    <button onclick="adminCoins()" class="px-2.5 py-1.5 rounded-lg border border-line text-xs font-semibold hover:border-neon">+ Engrenagens</button>
    <button onclick="adminXp()" class="px-2.5 py-1.5 rounded-lg border border-line text-xs font-semibold hover:border-neon">+ XP</button>
    <button onclick="adminLevel()" class="px-2.5 py-1.5 rounded-lg border border-line text-xs font-semibold hover:border-neon">Nível 100</button>
+   <button onclick="admBroadcast()" class="px-2.5 py-1.5 rounded-lg border border-ember text-ember text-xs font-semibold hover:bg-ember/10">🔔 Notificar todos</button>
   </div>
 </div>
 <div id="hrwarn" role="alert" aria-live="polite" class="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[58] w-[min(88vw,340px)] pointer-events-none rounded-2xl border border-neon/60 bg-panel shadow-[0_12px_48px_rgba(0,0,0,.6)] overflow-hidden" style="opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s">
@@ -832,6 +833,24 @@ function adminEvent(){if(!isAdmin())return;const w=S.wo,r=route();
   if(w.evCur){toast('Já há um evento em andamento');return}
   const def=EVENTS[Math.floor(Math.random()*EVENTS.length)];
   w.evs.push({f:w.dist/r.dist,ev:def.id,st:'todo'});evBegin(w.evs[w.evs.length-1]);admPanel()}
+/* Aviso para TODOS os aparelhos (admin): chama a Edge Function "send-push", que assina e envia o Web Push com a chave privada (nunca fica no app) */
+function admBroadcast(){if(!isAdmin())return;
+  openCenter(`<h2 class="font-display text-2xl font-bold mb-1">Notificar todos</h2><p class="text-sm text-zinc-400 mb-3">Envia uma notificação push <b>real</b> para todos os aparelhos registrados.</p>
+   <form onsubmit="admBroadcastSend(event)" class="space-y-3">
+    <label class="block text-sm">Título<input name="t" required maxlength="60" value="Andou! 🚴" autocomplete="off" class="${IN} mt-1"></label>
+    <label class="block text-sm">Mensagem<textarea name="b" required maxlength="160" rows="3" class="${IN} mt-1"></textarea></label>
+    <label class="block text-sm">Senha de envio<input name="k" type="password" required autocomplete="off" class="${IN} mt-1"></label>
+    <div class="flex gap-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border border-line font-semibold">Cancelar</button><button id="adm-bc-go" class="flex-1 py-2.5 rounded-xl bg-ember text-ink font-bold">Enviar</button></div></form>`)}
+async function admBroadcastSend(e){e.preventDefault();if(!isAdmin())return;
+  const f=e.target.elements,b=document.getElementById('adm-bc-go'),reset=()=>{b.disabled=false;b.textContent='Enviar'};
+  if(!confirm('Enviar esta notificação para TODOS os dispositivos?'))return;
+  b.disabled=true;b.textContent='Enviando…';
+  try{const r=await fetch(SUPABASE_URL+'/functions/v1/send-push',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY},
+      body:JSON.stringify({title:f.t.value.trim(),body:f.b.value.trim(),password:f.k.value})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){reset();toast(r.status===401?'Senha incorreta':(j.error||'Erro ao enviar ('+r.status+')'));return}
+    closeModal(true);toast('Enviado para '+j.sent+' de '+j.total+' dispositivo(s)'+(j.removed?' · '+j.removed+' expirado(s) removido(s)':''))}
+  catch(_){reset();toast('Sem conexão com o servidor')}}
 /* Pop-up de "comando de vibração" (o PC não vibra): aparece no Admin sempre que o sistema chama haptic() */
 const HAP_LBL={count:'Contagem 3-2-1',go:'Largada / GO!',coin:'Ganho de engrenagens/XP',event:'Evento iniciado',evwin:'Evento conquistado',evlost:'Evento perdido',win:'Treino concluído',end:'Treino encerrado',pause:'Pausa',resume:'Retomada',level:'Subida de nível'};
 function hapPopup(name,pat){let box=document.getElementById('haptoast');
