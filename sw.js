@@ -24,6 +24,8 @@ self.addEventListener('fetch',e=>{
   }
   /* arquivos estáticos e bibliotecas: usa o cache e atualiza em segundo plano */
   e.respondWith(caches.open(CACHE).then(ch=>ch.match(req).then(hit=>{
+    /* quadros dos exercícios nunca mudam: se já estão no cache, responde direto, sem rebaixar (o app pré-carrega ~160 deles ao abrir) */
+    if(hit&&url.hostname==='bryllim.github.io'&&hit.type!=='opaque')return hit;
     const net=fetch(req).then(r=>{if(r&&(r.ok||r.type==='opaque'))ch.put(req,r.clone());return r}).catch(()=>hit);
     return hit||net;
   })));
