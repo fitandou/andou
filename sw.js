@@ -1,8 +1,8 @@
 /* Service worker do Andou! – permite instalar o app e abrir mesmo offline.
    Para publicar uma versão nova do app, aumente o número em CACHE. */
-const CACHE='andou-v5';
+const CACHE='andou-v6';
 const SHELL=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','icon-maskable-512.png','badge-96.png'];
-const CDN=['unpkg.com','cdn.jsdelivr.net','fonts.googleapis.com','fonts.gstatic.com'];
+const CDN=['unpkg.com','cdn.jsdelivr.net','fonts.googleapis.com','fonts.gstatic.com','bryllim.github.io'];   /* bryllim.github.io = quadros dos exercícios da Academia (funcionam offline depois de vistos) */
 
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));
