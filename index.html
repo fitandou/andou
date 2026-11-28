@@ -187,6 +187,17 @@ main{touch-action:pan-y pinch-zoom}
 .gyan.an.rdy.p2 img:nth-of-type(1){animation-name:gy1}.gyan.an.rdy.p2 img:nth-of-type(2){animation-name:gy3}
 .gyan.an.rdy.p3 img:nth-of-type(1){animation-name:gy3a}.gyan.an.rdy.p3 img:nth-of-type(2){animation-name:gy3b}.gyan.an.rdy.p3 img:nth-of-type(3){animation-name:gy3c}
 .gyan .gyic{color:#2f6396}
+/* execução da academia: tela única, sem rolagem (imagem flexível; o resto tem altura própria) */
+.gyw{position:absolute;inset:0;padding:.75rem}
+.gyscr{height:100%;display:flex;flex-direction:column;gap:.5rem;max-width:36rem;margin:0 auto;min-height:0}
+.gyscr .gy-art{flex:1 1 0;min-height:70px;position:relative}
+.gyscr .gy-art .gyan{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto}
+.gyscr .gy-low{display:flex;flex-direction:column;gap:.5rem;flex:0 0 auto}
+.gy-big{font-size:clamp(3.25rem,13vh,6rem)}
+.gy-tip{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+@media (max-height:640px){.gy-tip{-webkit-line-clamp:2}.gy-b{padding-top:.5rem!important;padding-bottom:.5rem!important}}
+@media (max-height:520px){.gy-tip{display:none}}
+@media (orientation:landscape) and (max-height:520px){.gyscr{max-width:none;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);gap:.5rem 1rem}.gyscr .gy-art{grid-row:1/3;grid-column:1}.gyscr .gy-top{grid-column:2;grid-row:1}.gyscr .gy-low{grid-column:2;grid-row:2;min-height:0;justify-content:center;overflow:hidden}}
 .gyan.ok .gyic{display:none}
 .gyan.fx-off img{animation-play-state:paused!important}
 /* ciclo de 2 passos (início → fim → início): fade de 1,0 s (45,5% de --gy-d=2,2 s) e pausa de 0,1 s em cada pose; o quadro que sai e o que entra usam a mesma curva, então a soma das opacidades fica em 1 */
@@ -1182,10 +1193,14 @@ function gymHome(p){const y=gyD(p),s=gyStats(p),sug=gySug(p),es=sug?gyEst(sug,gy
    <div class="grid grid-cols-4 gap-2">${b('Dias',s.act+'/'+y.goal,s.act>=y.goal?'text-emerald-300':'text-neon')}${b('Tempo',s.min+' min')}${b('Calorias',s.kc.toLocaleString('pt-BR'))}${b('Sequência',s.st+(s.st===1?' dia':' dias'))}</div>
    ${sug?`<div class="flex items-center gap-2"><div class="min-w-0 flex-1"><div class="text-[11px] uppercase tracking-wider text-neon">Treino do dia</div><div class="text-sm font-semibold truncate">${esc(sug.n)}</div><div class="text-xs text-zinc-400 truncate">${gyMin(es.secs)} min · ~${es.kc} kcal · ${sug.it.length} exercícios</div></div><button onclick="gyWoModal('${sug.id}')" class="px-3 py-2 rounded-lg border border-line text-sm">Detalhes</button><button onclick="gyStart('${sug.id}')" class="px-3 py-2 rounded-lg bg-brand text-white text-sm font-semibold flex items-center gap-1.5"><i data-lucide="play" class="w-4 h-4"></i>Iniciar</button></div>`:''}</section>`}
 /* Home: box Ciclismo (mesmo formato do box Academia): semana, total, treinos e recordes */
-function cycHome(p){const h=p.history||[],km=h.reduce((a,x)=>a+x.dist,0)+G(p).del.km,nb=S.routes.filter(r=>userBest(r)).length,
+/* sugestão de pista para o box Ciclismo: sorteada ao abrir o app e mantida até o botão de sortear outra */
+function cycSug(){if(!S.routes.length)return null;let r=S.routes.find(x=>x.id===S.cycSugId);if(!r){r=S.routes[Math.floor(Math.random()*S.routes.length)];S.cycSugId=r.id}return r}
+function cycSugNext(){const L=S.routes;if(!L.length)return;let r;if(L.length===1)r=L[0];else do{r=L[Math.floor(Math.random()*L.length)]}while(r.id===S.cycSugId);S.cycSugId=r.id;keepScroll(render)}
+function cycHome(p){const sr=cycSug(),h=p.history||[],km=h.reduce((a,x)=>a+x.dist,0)+G(p).del.km,nb=S.routes.filter(r=>userBest(r)).length,
   b=(l,v,u='')=>`<div class="rounded-lg bg-ink border border-line px-2 py-1.5 min-w-0 text-center"><div class="text-[11px] text-zinc-400 truncate">${l}</div><div class="font-display text-xl font-bold text-neon leading-tight truncate">${v}${u?`<span class="text-[11px] font-sans font-normal text-zinc-500 ml-0.5">${u}</span>`:''}</div></div>`;
   return `<section class="rounded-2xl bg-panel border border-line p-3 shrink-0 space-y-2"><div class="flex items-center justify-between gap-2"><h3 class="font-display text-xl font-bold flex items-center gap-2"><i data-lucide="bike" class="w-5 h-5 text-neon"></i>Ciclismo</h3><button onclick="setTab('rotas')" class="text-xs text-neon flex items-center gap-1">Ver rotas<i data-lucide="chevron-right" class="w-3.5 h-3.5"></i></button></div>
-   <div class="grid grid-cols-4 gap-2">${b('Semana',weekKm(p).toFixed(1),'km')}${b('Total',km.toFixed(1),'km')}${b('Treinos',h.length+G(p).del.n)}${b('Recordes',nb)}</div></section>`}
+   <div class="grid grid-cols-4 gap-2">${b('Semana',weekKm(p).toFixed(1),'km')}${b('Total',km.toFixed(1),'km')}${b('Treinos',h.length+G(p).del.n)}${b('Recordes',nb)}</div>
+   ${sr?`<div class="flex items-center gap-2"><div class="min-w-0 flex-1"><div class="text-[11px] uppercase tracking-wider text-neon">Sugestão de treino</div><div class="text-sm font-semibold truncate">${esc(sr.name)}</div><div class="text-xs text-zinc-400 truncate">${sr.dist.toFixed(1)} km · +${elevStats(sr.elev).gain} m · ${userBest(sr)?'Recorde '+fmt(userBest(sr)):'Sem recorde'}</div></div><button onclick="cycSugNext()" aria-label="Sortear outra pista" class="px-3 py-2 rounded-lg border border-line text-zinc-300"><i data-lucide="shuffle" class="w-4 h-4"></i></button><button onclick="startNow('${sr.id}')" class="px-3 py-2 rounded-lg bg-brand text-white text-sm font-semibold flex items-center gap-1.5"><i data-lucide="play" class="w-4 h-4"></i>Iniciar</button></div>`:''}</section>`}
 /* faixa da semana (Home) = AGENDA: cada dia de treino mostra o que está previsto (bike = pedal, halter = academia, os dois = ambos).
    Ícone verde = feito · ícone claro = previsto · ícone vermelho = previsto e não feito (dia já passou) · lua = descanso. Toque no dia para ver o detalhe. */
 function weekStrip(p){const s=gyStats(p),y=gyD(p),L=['S','T','Q','Q','S','S','D'],NM=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'],
@@ -1200,34 +1215,35 @@ function weekStrip(p){const s=gyStats(p),y=gyD(p),L=['S','T','Q','Q','S','S','D'
    return `<div onclick="toast('${NM[i]}: ${txt}')" class="flex-1 min-w-0 flex flex-col items-center gap-1 cursor-pointer"><span class="text-[11px] leading-none ${d.today?'text-white font-bold':'text-zinc-500 font-semibold'}">${L[i]}</span><div class="w-9 h-9 rounded-full border flex items-center justify-center gap-0.5 ${cls}" ${d.today?'style="box-shadow:0 0 0 2px #fff"':''} title="${NM[i]}: ${txt}">${inner}</div></div>`};
   return `<section class="rounded-2xl bg-panel border border-line px-3 py-2 shrink-0" style="padding-top:.65rem;padding-bottom:.9rem"><div class="flex items-center justify-between gap-2 mb-1.5"><span class="text-xs text-zinc-300 font-semibold flex items-center gap-1.5"><i data-lucide="calendar-days" class="w-4 h-4 text-neon"></i>Agenda da semana</span><span class="text-[11px] text-zinc-400 tabular-nums">${s.act}/${y.goal} dias de treino</span></div>
    <div class="flex gap-1">${s.days.map(cell).join('')}</div></section>`}
+function recBox(){recInit();return S.routes.length?`<section class="rounded-2xl bg-panel border border-line p-3 flex flex-col gap-2 shrink-0">
+    <h3 class="font-display text-xl lg:text-2xl font-bold flex items-center gap-2"><i data-lucide="route" class="w-5 h-5 text-neon"></i>Pistas Recomendadas</h3>
+    <div class="relative rounded-xl overflow-hidden h-28 bg-ink"><div class="absolute inset-0 overflow-hidden"><div id="recTrack" class="absolute inset-0"><div class="h-full">${cover(S.routes.find(x=>x.id===S.rec.order[S.rec.i]),'h-full')}</div></div></div>
+     ${S.rec.order.length>1?`<button onclick="recGo(-1)" aria-label="Pista anterior" class="absolute left-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/65 text-white grid place-items-center"><i data-lucide="chevron-left" class="w-5 h-5"></i></button><button onclick="recGo(1)" aria-label="Próxima pista" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/65 text-white grid place-items-center"><i data-lucide="chevron-right" class="w-5 h-5"></i></button><div id="recRingBox" class="absolute bottom-1.5 right-1.5 pointer-events-none">${recRing(Date.now()-S.rec.t0)}</div>`:''}</div>
+    <div id="recTxt" class="min-w-0">${recTxt(S.routes.find(x=>x.id===S.rec.order[S.rec.i]))}</div>
+    <button onclick="startNow(S.rec.order[S.rec.i])" class="w-full py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="play" class="w-4 h-4"></i>Iniciar agora</button></section>`:''}
 function homeTab(){
   recInit();const p=profile(),h=p.history,km=h.reduce((a,x)=>a+x.dist,0)+G(p).del.km,bmi=p.weight/Math.pow(p.height/100,2),
     nb=S.routes.filter(r=>userBest(r)).length,rec=recommend(),last=h[0];
-  const recHtml=rec?`<section class="rounded-2xl bg-panel border border-line p-3 lg:p-4 flex flex-col gap-2 lg:flex-1 lg:min-h-0">
-    <h3 class="font-display text-xl lg:text-2xl font-bold flex items-center gap-2"><i data-lucide="route" class="w-5 h-5 text-neon"></i>Pistas Recomendadas</h3>
-    <div class="relative rounded-xl overflow-hidden h-28 lg:h-auto lg:flex-1 lg:min-h-0 bg-ink"><div class="absolute inset-0 overflow-hidden"><div id="recTrack" class="absolute inset-0"><div class="h-full">${cover(S.routes.find(x=>x.id===S.rec.order[S.rec.i]),'h-full')}</div></div></div>
-     ${S.rec.order.length>1?`<button onclick="recGo(-1)" aria-label="Pista anterior" class="absolute left-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/65 text-white grid place-items-center"><i data-lucide="chevron-left" class="w-5 h-5"></i></button><button onclick="recGo(1)" aria-label="Próxima pista" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/65 text-white grid place-items-center"><i data-lucide="chevron-right" class="w-5 h-5"></i></button><div id="recRingBox" class="absolute bottom-1.5 right-1.5 pointer-events-none">${recRing(Date.now()-S.rec.t0)}</div>`:''}</div>
-    <div id="recTxt" class="min-w-0">${recTxt(S.routes.find(x=>x.id===S.rec.order[S.rec.i]))}</div>
-    <button onclick="startNow(S.rec.order[S.rec.i])" class="w-full py-2.5 rounded-lg bg-brand text-white font-semibold flex items-center justify-center gap-2"><i data-lucide="play" class="w-4 h-4"></i>Iniciar agora</button></section>`
-   :`<section class="rounded-2xl border border-dashed border-line p-4 text-center text-zinc-400 text-sm lg:flex-1 grid place-items-center">Nenhuma rota na biblioteca. Importe um arquivo .GPX na aba Rotas.</section>`;
+
   return `<div class="hm-scroll max-w-6xl mx-auto h-full overflow-y-auto"><div class="flex flex-col gap-2 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-3 lg:h-full">
    <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-3 lg:min-h-0">
     <section onclick="setTab('perfil')" onkeydown="if(event.key==='Enter')setTab('perfil')" role="button" tabindex="0" aria-label="Abrir perfil" class="rounded-2xl bg-panel border border-line p-3 sm:p-4 min-h-[7.25rem] flex items-center gap-3 sm:gap-4 shrink-0 cursor-pointer active:opacity-80">${profBlock(p,innerWidth<640?40:52)}
      <div class="min-w-0 flex-1"><div class="font-display text-2xl sm:text-3xl font-bold leading-tight break-words">Olá, ${esc(p.name)}!</div>
-      <div class="flex flex-wrap gap-1 mt-1.5 text-[11px] sm:text-xs text-zinc-300 leading-tight"><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${p.weight} kg</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${p.height} cm</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">IMC ${bmi.toFixed(1)}</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">Inclinação: ${INT[S.inten].n}</span></div>
+      <div class="flex flex-wrap gap-1 mt-1.5 text-[11px] sm:text-xs text-zinc-300 leading-tight"><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${p.weight} kg</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${p.height} cm</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">IMC ${bmi.toFixed(1)}</span></div>
       <div class="flex flex-wrap gap-1 mt-1 text-[11px] sm:text-xs text-emerald-300 leading-tight"><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">Nível ${lvInfo(G(p).xp).l}</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${G(p).coins.toLocaleString('pt-BR')} engrenagens</span><span class="inline-flex items-center whitespace-nowrap rounded-md bg-ink/70 border border-line px-1.5 py-0.5">${lvInfo(G(p).xp).cur.toLocaleString('pt-BR')}/${lvInfo(G(p).xp).need.toLocaleString('pt-BR')} XP</span></div>
       <div class="text-[11px] sm:text-xs text-zinc-500 mt-1.5 leading-snug break-words">${last?'Último pedal: '+new Date(last.date).toLocaleDateString('pt-BR')+' · '+hhmm(last.date-last.time*1000)+' - '+hhmm(last.date)+'<br>'+esc(last.routeName)+' · '+last.dist.toFixed(1)+' km':(gyD(p).log.length?'Nenhum pedal registrado ainda':'Nenhum treino registrado ainda')}${gymLast(p)}</div></div></section>
+
+    <section class="rounded-2xl bg-gradient-to-br from-neon/15 to-panel border border-neon/30 p-3 lg:p-5 flex flex-col justify-center gap-2 lg:flex-1 lg:min-h-0 hm-msg">
+     <div class="flex items-center justify-between text-neon text-xs font-semibold"><span class="flex items-center gap-1.5"><i data-lucide="sparkles" class="w-4 h-4"></i>Mensagem do dia</span><span class="flex items-center gap-2"><button onclick="nextMsg()" class="flex items-center gap-1 text-zinc-400 hover:text-neon"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Outra</button><span id="msgRingBox" class="pointer-events-none [&>svg]:!w-6 [&>svg]:!h-6">${recRing(Date.now()-S.msg.t0,MSG_MS)}</span></span></div>
+     <p id="msgTxt" class="font-display text-xl lg:text-4xl font-bold leading-tight">${motivMsg(p)}</p></section>
     ${weekStrip(p)}
     ${wDue(p)?`<button onclick="weightModal()" class="w-full rounded-xl border border-ember/60 bg-ember/10 text-ember px-3 py-2 text-sm font-semibold flex items-center gap-2 shrink-0"><i data-lucide="scale" class="w-4 h-4"></i>Hora de atualizar seu peso<i data-lucide="chevron-right" class="w-4 h-4 ml-auto"></i></button>`:''}
     ${calBox(p)}
     ${gymHome(p)}
     ${cycHome(p)}
-    <section class="rounded-2xl bg-gradient-to-br from-neon/15 to-panel border border-neon/30 p-3 lg:p-5 flex flex-col justify-center gap-2 lg:flex-1 lg:min-h-0 hm-msg">
-     <div class="flex items-center justify-between text-neon text-xs font-semibold"><span class="flex items-center gap-1.5"><i data-lucide="sparkles" class="w-4 h-4"></i>Mensagem do dia</span><span class="flex items-center gap-2"><button onclick="nextMsg()" class="flex items-center gap-1 text-zinc-400 hover:text-neon"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Outra</button><span id="msgRingBox" class="pointer-events-none [&>svg]:!w-6 [&>svg]:!h-6">${recRing(Date.now()-S.msg.t0,MSG_MS)}</span></span></div>
-     <p id="msgTxt" class="font-display text-xl lg:text-4xl font-bold leading-tight">${motivMsg(p)}</p></section>
     <div class="grid grid-cols-2 gap-2 lg:gap-3 shrink-0"><button onclick="setTab('rotas')" class="py-3 lg:py-5 rounded-2xl bg-brand text-white font-display font-extrabold flex items-center justify-center gap-2 shadow-[0_8px_32px_rgba(10,120,210,.55)]"><i data-lucide="bike" class="w-8 h-8 shrink-0"></i><span class="flex flex-col items-start leading-none"><span class="text-2xl lg:text-4xl">TREINAR</span><span class="text-xs font-semibold tracking-wider opacity-90 mt-1">CICLISMO</span></span></button><button onclick="setTab('academia')" class="py-3 lg:py-5 rounded-2xl bg-brand text-white font-display font-extrabold flex items-center justify-center gap-2 shadow-[0_8px_32px_rgba(10,120,210,.55)]"><i data-lucide="dumbbell" class="w-8 h-8 shrink-0"></i><span class="flex flex-col items-start leading-none"><span class="text-2xl lg:text-4xl">TREINAR</span><span class="text-xs font-semibold tracking-wider opacity-90 mt-1">ACADEMIA</span></span></button></div>
    </div>
-   <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-2 lg:min-h-0">${recHtml}${hordaCard()}
+   <div class="flex flex-col gap-2 lg:gap-3 lg:col-span-2 lg:min-h-0">${hordaCard()}
     <div class="lg:shrink-0 lg:max-h-[48%] lg:overflow-y-auto rounded-2xl">${btPanel()}</div></div>
   </div></div>`}
 
@@ -1240,7 +1256,7 @@ function shell(){const p=profile();
    <button onclick="switchProfile()" class="flex items-center gap-2 ml-auto sm:ml-0 py-2" title="Trocar perfil">${syncDot()}${avatar(p,34)}<span class="text-sm hidden sm:block">${esc(p.name)}</span><i data-lucide="repeat" class="w-4 h-4 text-white/80"></i></button></div>${S.admBack&&!isAdmin()?`<div class="bg-ember text-ink text-xs font-bold px-3 py-1.5 flex items-center justify-between gap-2"><span class="truncate">Admin · gerenciando o perfil de ${esc(p.name)}</span><button onclick="switchProfile()" class="shrink-0 px-2.5 py-1 rounded-md bg-ink text-ember font-bold">Voltar ao Admin</button></div>`:''}</header>
   ${mainHtml(S.tab)}`}
 const mainHtml=t=>t==='home'?`<main class="max-w-6xl mx-auto p-4" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${homeTab()}</main>`:t==='treino'?`<main class="max-w-6xl mx-auto p-4" style="height:calc(100dvh - var(--hh,110px) - env(safe-area-inset-bottom))">${treino()}</main>`:`<main class="max-w-6xl mx-auto p-4 pb-16">${t==='adm'?admTab():t==='perfil'?perfil():t==='loja'?loja():t==='conquistas'?conquistas():t==='maratona'?maratona():t==='academia'?academia():rotas()}</main>`;
-function setTab(t){if(t!=='maratona')S.mrLib=false;if(t==='home'&&S.rec)S.rec.t0=Date.now();if(t==='home'&&S.msg)S.msg.t0=Date.now();if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
+function setTab(t){if(t!=='maratona')S.mrLib=false;if((t==='home'||t==='treino')&&S.rec)S.rec.t0=Date.now();if(t==='home'&&S.msg)S.msg.t0=Date.now();if(t==='treino'&&S.tab!=='treino')waveReset();S.tab=t;render()}
 /* --hh = altura do cabeçalho (observada por ResizeObserver: acompanha mudanças de fonte/linha do menu sem polling). */
 const _hro=window.ResizeObserver?new ResizeObserver(()=>setHH()):null;
 function setHH(){const e=document.querySelector('header');if(!e)return;document.documentElement.style.setProperty('--hh',e.offsetHeight+'px');if(_hro&&e._ro!==1){e._ro=1;_hro.observe(e)}}
@@ -1385,7 +1401,8 @@ function fit4(){document.querySelectorAll('[data-hs]').forEach(e=>{const v=(S.sc
   w.style.maxHeight=Math.ceil(b-t+2)+'px';w.scrollTop=cur||sv})}
 document.addEventListener('scroll',e=>{const w=e.target;if(w&&w.dataset&&w.dataset.fit4){(S.sc4=S.sc4||{})[w.dataset.fit4]=w.scrollTop}else if(w&&w.dataset&&w.dataset.hs){(S.sc4=S.sc4||{})[w.dataset.hs]=w.scrollLeft}},true);
 addEventListener('resize',()=>fit4());
-function render(){hrWarnUpd();admPanel();swAbort();if(typeof fxIO!=='undefined'&&fxIO)fxIO.disconnect();$('#app').innerHTML=S.cur&&profile()?shell():home();lucide.createIcons();setHH();requestAnimationFrame(setHH);navCenter();if(S.cur&&S.tab==='treino')updLive();syncAnims();fit4();setTimeout(fit4,250);gyFit();setTimeout(gyFit,300);if(S.cur&&S.tab==='home'){recSched();msgSched()}}
+addEventListener('resize',()=>{clearTimeout(window._rdT);window._rdT=setTimeout(()=>{if(S.cur&&S.tab==='treino'&&window._recDesk!==undefined&&window._recDesk!==(innerWidth>=1024)&&!(S.wo.dist>0||S.wo.running||S.wo.arming||S.wo.auto))render()},200)});
+function render(){hrWarnUpd();admPanel();swAbort();if(typeof fxIO!=='undefined'&&fxIO)fxIO.disconnect();$('#app').innerHTML=S.cur&&profile()?shell():home();lucide.createIcons();setHH();requestAnimationFrame(setHH);navCenter();if(S.cur&&S.tab==='treino')updLive();syncAnims();fit4();setTimeout(fit4,250);gyFit();setTimeout(gyFit,300);if(S.cur&&S.tab==='home')msgSched();if(S.cur&&S.tab==='treino')recSched()}
 
 /* ---------- Moedas, XP e eventos ---------- */
 /* Por km: moedas e XP pela distância + ganho de altimetria do km; ao final: conclusão e velocidade média; por evento vencido (constantes em ECO) */
@@ -1724,7 +1741,7 @@ function hordaCard(){const lv=lvInfo(G().xp).l,ok=lv>=FEAT.horda;
    ${ok?`<button onclick="startHorda()" class="shrink-0 px-3 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5" style="background:#2f7a2a;color:#fff"><i data-lucide="skull" class="w-4 h-4"></i>Fugir</button>`:`<div class="shrink-0 text-xs text-zinc-500 flex items-center gap-1"><i data-lucide="lock" class="w-3.5 h-3.5"></i>Nível ${FEAT.horda}</div>`}</section>`}
 function startHorda(){if(S.gy){toast('Encerre o treino da academia primeiro');return}if(lvInfo(G().xp).l<FEAT.horda){toast('Fuga da Horda desbloqueia no nível '+FEAT.horda);return}
   const w=S.wo;if(w.dist>0||w.running||cdBusy){toast('Já há um treino em andamento');setTab('treino');return}
-  const id=(S.rec&&S.rec.order[S.rec.i])||(S.routes[0]&&S.routes[0].id);if(!id)return;
+  const id=(w.route&&S.routes.some(x=>x.id===w.route)&&w.route)||(S.rec&&S.rec.order[S.rec.i])||(S.routes[0]&&S.routes[0].id);if(!id)return;
   w.route=id;w.mode='horda';w.hz={mv:0,rel:false,z:0,t:0,sp:0};S.tab='treino';render();startCountdown()}
 /* chamado pelo advance() a cada passo: acorda o zumbi, move e verifica a captura (devolve true se foi alcançado) */
 function hordaStep(m,L,r){const w=S.wo,z=w.hz;if(!z)return false;
@@ -1814,7 +1831,8 @@ function treino(){
         <div class="font-display text-2xl lg:text-xl font-bold text-white leading-none tabular-nums lg:inline"><b id="m-vspd" class="font-bold">0.0</b><span class="text-xs text-zinc-500 ml-1">km/h</span></div></div></div>
       <div class="h-1.5 rounded-full bg-line mt-2 overflow-hidden"><div id="m-bar" class="h-full bg-ember" style="width:0%"></div></div></section>
      <div class="order-2 lg:order-none grid grid-cols-6 lg:grid-cols-2 gap-2 shrink-0">${mt('m-cad','Cadência','rpm','col-span-2')}${mt('m-hr','Freq. cardíaca','bpm','col-span-2')}${mt('m-grade','Inclinação','','col-span-2')}${mt('m-dist','Distância','km','col-span-2')}${mt('m-time','Tempo','','col-span-4','','lg:col-span-2')}<button onclick="setTab('maratona')" class="mr-btn rounded-xl bg-brand text-white py-2.5 font-display text-2xl lg:text-4xl font-bold hidden lg:flex items-center justify-center gap-2 active:opacity-80">Modo Batalha</button></div>`;
-  const side=hero+simPanel();                    /* coluna direita (desktop): velocidade/métricas antes de iniciar, simulação */
+  const desk=innerWidth>=1024;window._recDesk=desk;   /* um único box de pistas (ids únicos): no desktop vai na coluna da direita, no celular abaixo do Modo Batalha */
+  const side=hero+(started||!desk?'':recBox())+simPanel();                    /* coluna direita (desktop): velocidade/métricas antes de iniciar, simulação */
   const wide=!side.trim();                       /* sem nada na coluna direita: o circuito ocupa a largura toda */
   return `<div class="hm-scroll max-w-6xl mx-auto h-full overflow-y-auto lg:overflow-hidden"><div class="flex flex-col gap-2 lg:gap-3 min-h-full lg:h-full">
    <section class="rounded-2xl bg-panel border border-line px-2.5 py-1 lg:p-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 shrink-0">
@@ -1828,7 +1846,8 @@ function treino(){
    <div class="lg:hidden shrink-0 flex flex-col gap-2"><div class="flex gap-2">
     <button onclick="toggleWo()" style="padding-top:1.9rem;padding-bottom:1.9rem;font-size:2.5rem;line-height:1" class="js-play js-play-lg flex-1 rounded-xl bg-brand text-white font-display font-bold flex items-center justify-center gap-2 active:opacity-80 shadow-[0_6px_24px_rgba(10,120,210,.45)]">${playBtn}</button>
     ${started?`<button onclick="finish(false)" class="px-5 py-2.5 rounded-xl bg-red-600 border border-red-600 text-white font-display text-xl font-bold flex items-center justify-center gap-2 active:opacity-80"><i data-lucide="flag" class="w-5 h-5"></i>Fim</button>`:''}</div>
-    ${started?'':`<button onclick="setTab('maratona')" style="padding-top:.35rem;padding-bottom:.35rem;line-height:1.2" class="rounded-xl bg-brand text-white font-display text-lg font-bold flex items-center justify-center active:opacity-80">Modo Batalha</button>`}</div>
+    ${started?'':`<button onclick="setTab('maratona')" style="padding-top:.35rem;padding-bottom:.35rem;line-height:1.2" class="rounded-xl bg-brand text-white font-display text-lg font-bold flex items-center justify-center active:opacity-80">Modo Batalha</button>`}
+     ${started||desk?'':recBox()}</div>
    <div class="flex-1 lg:min-h-0 flex flex-col gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
     <div class="tr-cols flex flex-col gap-2 lg:gap-3 flex-1 min-h-0 ${wide?'lg:col-span-4':'lg:col-span-3'}">
      ${circuit}
@@ -2200,7 +2219,7 @@ const attrRows=(m,l,showMax)=>m.fx.map(id=>{const a=PET_ATTR[id],v=petVal(id,m.r
   return `<li class="flex items-start gap-2 text-sm"><i data-lucide="${a.ic}" class="w-4 h-4 text-neon shrink-0 mt-0.5"></i><span class="min-w-0 flex-1"><span class="font-semibold">${a.n}</span> <span class="text-[11px] text-zinc-500">${a.d}</span></span><span class="tabular-nums text-emerald-300 font-semibold shrink-0">${attrTxt(id,v)}${showMax&&l<PET_MAX?`<span class="text-[10px] text-zinc-500 font-normal"> → ${attrTxt(id,mx)}</span>`:''}</span></li>`}).join('');
 /* painel do mascote equipado: nível, XP e atributos já com a força do nível atual */
 function petPanel(p){const m=MASCOTS[p.mascot];
-  if(!m)return `<div class="rounded-xl border border-dashed border-line p-3 text-sm text-zinc-400 mb-3">Nenhum mascote equipado. Adote um abaixo: ele ganha XP junto com você nos treinos e seus atributos dão bônus nas pedaladas.</div>`;
+  if(!m)return `<div class="rounded-xl border border-dashed border-line p-3 text-sm text-zinc-400 mb-3">Nenhum mascote equipado. Adote um abaixo: ele ganha XP junto com você nos treinos e seus atributos dão bônus nas pedaladas e nos treinos de academia.</div>`;
   const o=petInfo(petXpOf(p,m.id)),R=RARITY[m.rar];
   return `<div class="rounded-xl bg-ink border p-3 mb-3" style="border-color:${R.c}88"><div class="flex items-center gap-3 flex-wrap">${mascotSlot(p,84)}
    <div class="flex-1 min-w-[180px]"><div class="text-[11px] text-zinc-400 leading-none">Mascote equipado</div><div class="font-display text-2xl font-bold leading-tight">${esc(m.name)}</div><div class="text-xs font-semibold" style="color:${R.c}">${R.n} · Nível ${o.l}${o.max?' (máximo)':' de '+PET_MAX}</div>
@@ -2232,6 +2251,23 @@ const PET_WHAT={
   horda:'No modo Fuga da Horda, o zumbi anda mais devagar por esse percentual, o que dá mais folga para fugir.',
   kmcoin:'Soma um valor fixo de engrenagens a cada quilômetro pedalado, independente da velocidade.',
   kmxp:'Soma um valor fixo de XP a cada quilômetro pedalado, independente da velocidade.'};
+/* Efeito de cada atributo na ACADEMIA. on(c) = está em efeito agora? c = {work: série em andamento, x: exercício atual, last: última série do exercício}
+   k:'t' = bônus por tempo (soma ao multiplicador de engrenagens/XP enquanto estiver ativo; 'vel' só engrenagens). w = texto da Loja · s = texto curto do pop-up. */
+const GY_LOW=new Set(['per','glu','pan']),GY_CORE=new Set(['abd','alo']);
+const GYM_FX={
+  xp:{w:'Também multiplica o XP de tudo que você ganha nos treinos de academia.',s:'XP em todos os ganhos',on:()=>true},
+  coin:{w:'Também multiplica as engrenagens de tudo que você ganha nos treinos de academia.',s:'engrenagens em todos os ganhos',on:()=>true},
+  pxp:{w:'O mascote também ganha mais XP nos treinos de academia.',s:'XP do mascote',on:()=>true},
+  kmcoin:{w:'Soma engrenagens fixas a cada série concluída na academia.',s:'engrenagens por série concluída',on:()=>true},
+  kmxp:{w:'Soma XP fixo a cada série concluída na academia.',s:'XP por série concluída',on:()=>true},
+  conc:{w:'Aumenta o bônus que você recebe ao concluir o treino inteiro.',s:'no bônus ao concluir o treino',on:()=>true},
+  subida:{k:'t',w:'Em exercícios de pernas, glúteos e panturrilhas, aumenta engrenagens e XP por esse percentual.',s:'eng. e XP em pernas, glúteos e panturrilhas',on:c=>c.work&&GY_LOW.has(c.x.g)},
+  desc:{k:'t',w:'No descanso entre as séries, aumenta engrenagens e XP por esse percentual: recuperar também rende.',s:'eng. e XP durante o descanso',on:c=>!c.work},
+  plano:{k:'t',w:'Em exercícios cronometrados (prancha, cardio, isometria), aumenta engrenagens e XP por esse percentual.',s:'eng. e XP em exercícios por tempo',on:c=>c.work&&c.x.t==='t'},
+  evento:{k:'t',w:'Na última série de cada exercício, aumenta engrenagens e XP por esse percentual.',s:'eng. e XP na última série do exercício',on:c=>c.work&&c.last},
+  vel:{k:'t',w:'Nos exercícios de cardio e HIIT, aumenta as engrenagens por esse percentual.',s:'engrenagens no cardio e HIIT',on:c=>c.work&&c.x.g==='car'},
+  horda:{k:'t',w:'Em exercícios de abdômen e alongamento, aumenta engrenagens e XP por esse percentual.',s:'eng. e XP em abdômen e alongamento',on:c=>c.work&&GY_CORE.has(c.x.g)}};
+const gyTxt=(id,v)=>{const a=PET_ATTR[id],s=v.toFixed(1).replace('.',',').replace(/,0$/,'');return a.f==='km'?'+'+s+' '+a.u+'/série':'+'+s+'%'};
 function mascotAct(k,id){closeModal();if(k==='buy')buyMascot(id);else if(k==='on')equipMascot(id);else equipMascot('')}
 /* card centralizado com os detalhes do mascote (abre ao tocar no card da Loja) */
 function mascotDetail(id){const p=profile(),m=MASCOTS[id];if(!p||!m)return;
@@ -2244,6 +2280,7 @@ function mascotDetail(id){const p=profile(),m=MASCOTS[id];if(!p||!m)return;
   const attrs=m.fx.length?m.fx.map(a=>{const A=PET_ATTR[a],v=petVal(a,m.rar,ml),mx=petVal(a,m.rar,PET_MAX),v1=petVal(a,m.rar,1);
     return `<li class="rounded-xl border border-line bg-ink/60 p-3"><div class="flex items-center gap-2"><i data-lucide="${A.ic}" class="w-4 h-4 text-neon shrink-0"></i><span class="font-semibold flex-1 min-w-0">${A.n}</span><span class="tabular-nums text-emerald-300 font-semibold">${attrTxt(a,v)}</span></div>
      <p class="text-sm text-zinc-300 mt-1.5 leading-snug">${PET_WHAT[a]||A.d}</p>
+      <p class="text-xs text-emerald-300/90 mt-1.5 leading-snug"><b>Academia:</b> ${GYM_FX[a]?GYM_FX[a].w:''}</p>
      <div class="text-[11px] text-zinc-500 mt-1.5">Nível 1: ${attrTxt(a,v1)} · Nível ${PET_MAX} (máx.): ${attrTxt(a,mx)}</div></li>`}).join('')
    :`<li class="rounded-xl border border-dashed border-line p-3 text-sm text-zinc-400">Este mascote não tem atributos: é só companhia. Mascotes mais raros e caros trazem mais bônus.</li>`;
   $('#modal').innerHTML=`<div class="fixed inset-0 z-50 bg-ink/85 flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()"><div role="dialog" aria-modal="true" class="pet-pop bg-panel border border-line rounded-2xl w-full max-w-md flex flex-col overflow-hidden" style="height:min(640px,88vh);height:min(640px,88dvh)">
@@ -2307,8 +2344,35 @@ const BADGES=[
   B('Mascotes e perfil','petlv10','Treinador','Leve um mascote ao nível 10.','heart','ouro','petLv',10,''),
   B('Mascotes e perfil','petmax','Elo Perfeito','Leve um mascote ao nível máximo ('+PET_MAX+').','heart','platina','petLv',PET_MAX,''),
   B('Mascotes e perfil','frame1','Estilo Próprio','Compre uma moldura de perfil.','palette','bronze','frames',1,'moldura'),
-  B('Mascotes e perfil','peso','Balança em Dia','Registre 5 pesagens.','scale','prata','peso',5,'pesagens')];
-const BADGE_CATS=['Treinos','Distância','Tempo','Velocidade','Subida','Desafios','Hábito','Exploração e nível','Mascotes e perfil'];
+  B('Mascotes e perfil','peso','Balança em Dia','Registre 5 pesagens.','scale','prata','peso',5,'pesagens'),
+  B("Academia · Treinos","gy1","Primeira Série","Registre seu primeiro treino de academia.","dumbbell","bronze","gn",1,"treino"),
+  B("Academia · Treinos","gy10","Rotina de Ferro","Registre 10 treinos de academia.","calendar-check","bronze","gn",10,"treinos"),
+  B("Academia · Treinos","gy50","Frequentador","Registre 50 treinos de academia.","shield","prata","gn",50,"treinos"),
+  B("Academia · Treinos","gy100","Rato de Academia","Registre 100 treinos de academia.","trophy","ouro","gn",100,"treinos"),
+  B("Academia · Treinos","gy250","Lenda do Ferro","Registre 250 treinos de academia.","crown","platina","gn",250,"treinos"),
+  B("Academia · Treinos","gyok25","Sem Desistir","Conclua 25 treinos de academia até o fim.","target","prata","gOk",25,"treinos"),
+  B("Academia · Esforço","gyh10","Dez Horas de Ferro","Acumule 10 horas de treino na academia.","timer","bronze","gH",10,"h"),
+  B("Academia · Esforço","gyh50","Meio Centenário","Acumule 50 horas de treino na academia.","hourglass","prata","gH",50,"h"),
+  B("Academia · Esforço","gyh100","Cem Horas","Acumule 100 horas de treino na academia.","clock","ouro","gH",100,"h"),
+  B("Academia · Esforço","gyb1","Sessão Longa","Treine por 1 hora em um único treino de academia.","clock","bronze","gBestH",1,"h"),
+  B("Academia · Esforço","gyb15","Maratona de Ferro","Treine por 1h30 em um único treino de academia.","hourglass","prata","gBestH",1.5,"h"),
+  B("Academia · Esforço","gys100","Cem Séries","Complete 100 séries na academia.","repeat","bronze","gSets",100,"séries"),
+  B("Academia · Esforço","gys1000","Mil Séries","Complete 1.000 séries na academia.","repeat","prata","gSets",1000,"séries"),
+  B("Academia · Esforço","gys5000","Máquina de Séries","Complete 5.000 séries na academia.","zap","ouro","gSets",5000,"séries"),
+  B("Academia · Esforço","gykc1","Fornalha","Queime 1.000 kcal na academia.","flame","bronze","gKc",1000,"kcal"),
+  B("Academia · Esforço","gykc10","Metabolismo Turbo","Queime 10.000 kcal na academia.","flame","prata","gKc",10000,"kcal"),
+  B("Academia · Esforço","gykc50","Vulcão","Queime 50.000 kcal na academia.","flame","ouro","gKc",50000,"kcal"),
+  B("Academia · Hábito","gywk1","Meta Batida","Cumpra a meta semanal de dias de treino (academia e pedal contam).","calendar-check","bronze","gWk",1,"semana"),
+  B("Academia · Hábito","gywk4","Mês na Meta","Cumpra a meta semanal em 4 semanas.","calendar-check","prata","gWk",4,"semanas"),
+  B("Academia · Hábito","gywk12","Trimestre de Ferro","Cumpra a meta semanal em 12 semanas.","star","ouro","gWk",12,"semanas"),
+  B("Academia · Hábito","gypg1","Seguindo o Plano","Conclua um treino do programa do personal virtual.","rocket","bronze","gPg",1,"treino"),
+  B("Academia · Hábito","gypg10","Disciplina Total","Conclua 10 treinos do programa do personal virtual.","star","ouro","gPg",10,"treinos"),
+  B("Academia · Hábito","gypet10","Dupla de Treino","Treine 10 vezes na academia com um mascote equipado.","paw-print","prata","gPet",10,"treinos"),
+  B("Academia · Variedade","gygrp5","Treino Variado","Treine 5 grupos musculares diferentes.","layers","bronze","gGrp",5,"grupos"),
+  B("Academia · Variedade","gygrp9","Corpo Todo","Treine os 9 grupos: peito, costas, ombros, bíceps, tríceps, pernas, glúteos, panturrilhas e abdômen.","layers","ouro","gGrp",9,"grupos"),
+  B("Academia · Variedade","gycar10","Coração a Mil","Faça 10 treinos com exercícios de cardio.","heart-pulse","prata","gCar",10,"treinos"),
+  B("Academia · Variedade","gyalo10","Flexível","Faça 10 treinos com alongamento.","activity","prata","gAlo",10,"treinos")];
+const BADGE_CATS=['Treinos','Distância','Tempo','Velocidade','Subida','Desafios','Hábito','Exploração e nível','Mascotes e perfil','Academia · Treinos','Academia · Esforço','Academia · Hábito','Academia · Variedade'];
 const BADGE_MAX_PIN=3;
 const dayNum=t=>Math.floor((t-new Date(t).getTimezoneOffset()*6e4)/864e5);   /* dia local como número inteiro: dias seguidos diferem de 1 */
 /* estatísticas de quem já tinha histórico: refeitas a partir dos treinos salvos (velocidade máxima e subida são aproximadas) */
@@ -2324,16 +2388,38 @@ function achBackfill(p,A){const s=A.s,h=p.history||[],d=G(p).del,nz=a=>Math.max(
   ds.forEach((v,i)=>{run=i&&v===ds[i-1]+1?run+1:1;best=Math.max(best,run)});
   s.bestStreak=best;s.lastDay=ds.length?ds[ds.length-1]:0;const tdy=dayNum(Date.now());s.streak=s.lastDay>=tdy-1?run:0;
   s.early=h.filter(x=>new Date(x.date-(x.time||0)*1000).getHours()<6).length;s.night=h.filter(x=>new Date(x.date-(x.time||0)*1000).getHours()>=22).length}
+/* academia: estatísticas refeitas a partir do histórico salvo (até 120 sessões, então são aproximadas) */
+const GY_MUSC=new Set(['pei','cos','omb','bic','tri','per','glu','pan','abd']);
+const gyWkOf=ts=>{const d=new Date(ts);d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d.getTime()};
+function achBackfillGym(p,A){const s=A.s,y=gyD(p),L=y.log,sum=k=>L.reduce((a,x)=>a+(+x[k]||0),0);
+  s.gn=L.length;s.gsecs=sum('t');s.gkc=sum('k');s.gsets=sum('s');s.gok=L.filter(x=>x.ok).length;s.gbestSecs=Math.max(0,...L.map(x=>+x.t||0));
+  const grp=new Set();let car=0,alo=0;
+  L.forEach(x=>{const w=GY_PRE.find(z=>z.id===x.w)||y.cus.find(z=>z.id===x.w);if(!w)return;const gs=new Set(w.it.map(it=>(GY_BY[it[0]]||{}).g));gs.forEach(g=>{if(GY_MUSC.has(g))grp.add(g)});if(gs.has('car'))car++;if(gs.has('alo'))alo++});
+  s.gGrp=[...grp];s.gcar=car;s.galo=alo;
+  s.gpg=y.pg&&Array.isArray(y.pg.ids)?L.filter(x=>x.ok&&y.pg.ids.includes(x.w)).length:0;s.gpet=0;
+  const wk={};L.forEach(x=>{const k=gyWkOf(x.d);(wk[k]=wk[k]||new Set()).add(gyDay(x.d))});
+  const ok=Object.keys(wk).filter(k=>wk[k].size>=y.goal).map(Number);s.gwk=ok.length;s.gwkLast=ok.length?Math.max(...ok):0}
+/* fim de um treino de academia: soma nas estatísticas acumuladas e devolve as medalhas novas */
+function achGym(p,g,ok,secs,kcal,pet,pg){const A=ACH(p),s=A.s,add=(k,v)=>{s[k]=(+s[k]||0)+v},y=gyD(p);
+  add('gn',1);add('gsecs',secs);add('gkc',kcal);add('gsets',g.sets);if(ok)add('gok',1);if(secs>(+s.gbestSecs||0))s.gbestSecs=secs;if(pet)add('gpet',1);if(pg)add('gpg',1);
+  const its=ok?g.w.it:g.w.it.slice(0,g.i+1),gs=new Set(its.map(it=>(GY_BY[it[0]]||{}).g));
+  if(!Array.isArray(s.gGrp))s.gGrp=[];gs.forEach(k=>{if(GY_MUSC.has(k)&&!s.gGrp.includes(k))s.gGrp.push(k)});
+  if(gs.has('car'))add('gcar',1);if(gs.has('alo'))add('galo',1);
+  const ws=gyWeek().getTime(),days=new Set([...y.log.filter(x=>x.d>=ws).map(x=>gyDay(x.d)),...(p.history||[]).filter(h=>h.date>=ws).map(h=>gyDay(h.date))]);
+  if(days.size>=y.goal&&s.gwkLast!==ws){s.gwkLast=ws;add('gwk',1)}
+  return achCheck(p,A)}
 /* estrutura de conquistas do perfil; na primeira vez refaz as estatísticas pelo histórico e já desbloqueia o que for devido (sem recursão: achCheck recebe A) */
 function ACH(p){if(!p.ach||typeof p.ach!=='object'||Array.isArray(p.ach))p.ach={};const A=p.ach;
   if(!A.u||typeof A.u!=='object')A.u={};if(!A.s||typeof A.s!=='object')A.s={};if(!Array.isArray(A.pin))A.pin=[];
-  if(!A.s.init){A.s.init=1;achBackfill(p,A);achCheck(p,A);p._achNew=true}
+  if(!A.s.init){A.s.init=1;achBackfill(p,A);achBackfillGym(p,A);A.s.gInit=1;achCheck(p,A);p._achNew=true}
+  else if(!A.s.gInit){A.s.gInit=1;achBackfillGym(p,A);achCheck(p,A);p._achNew=true}   /* quem já tinha conquistas do pedal: refaz só as da academia */
   return A}
 function achCtx(p,A){const s=A.s,own=p.owned||[];
   return{n:s.n||0,km:s.km||0,bestDist:s.bestDist||0,bestH:(s.bestSecs||0)/3600,maxSpd:s.maxSpd||0,avg25:s.avg25||0,elev:s.elev||0,evOk:s.evOk||0,evPerf:s.evPerf||0,hz:s.hz||0,
     streak:s.bestStreak||0,early:s.early||0,night:s.night||0,rotas:(s.routes||[]).length,recs:s.recs||0,lv:lvInfo(G(p).xp).l,
     petN:own.filter(k=>k.startsWith('mascot:')).length,petLv:Math.max(0,...Object.values(PD(p)).map(o=>petInfo(+(o||{}).xp||0).l)),
-    frames:own.filter(k=>k.startsWith('frame:')).length,peso:(p.wlog||[]).length}}
+    frames:own.filter(k=>k.startsWith('frame:')).length,peso:(p.wlog||[]).length,
+    gn:s.gn||0,gOk:s.gok||0,gH:(s.gsecs||0)/3600,gBestH:(s.gbestSecs||0)/3600,gSets:s.gsets||0,gKc:s.gkc||0,gWk:s.gwk||0,gPg:s.gpg||0,gPet:s.gpet||0,gGrp:(s.gGrp||[]).length,gCar:s.gcar||0,gAlo:s.galo||0}}
 /* desbloqueia o que já atingiu a meta; devolve as medalhas novas */
 function achCheck(p,A=ACH(p)){const c=achCtx(p,A),out=[];
   BADGES.forEach(b=>{if(!A.u[b.id]&&(c[b.k]||0)>=b.g){A.u[b.id]=Date.now();out.push(b)}});return out}
@@ -2362,7 +2448,7 @@ function pinBadge(id){const p=profile();if(!p)return;const A=ACH(p);if(!A.u[id])
 function setAchF(v){S.achF=v;keepScroll(render)}
 function medal(b,on,size=56){const T=BTIER[b.t];
   return `<div class="medal ${on?'':'medal-off'}" style="--m1:${T.c};--m2:${T.b};width:${size}px;height:${size}px" title="${esc(b.n)} · ${T.n}"><i data-lucide="${b.ic}" style="width:${Math.round(size*.46)}px;height:${Math.round(size*.46)}px"></i></div>`}
-const badgeVal=(b,c)=>{const v=Math.min(c[b.k]||0,b.g),dec=['km','bestDist','bestH','avg25','maxSpd'].includes(b.k)&&v%1;return(dec?v.toFixed(1).replace('.',','):Math.floor(v)).toLocaleString('pt-BR')};
+const badgeVal=(b,c)=>{const v=Math.min(c[b.k]||0,b.g),dec=['km','bestDist','bestH','avg25','maxSpd','gH','gBestH'].includes(b.k)&&v%1;return(dec?v.toFixed(1).replace('.',','):Math.floor(v)).toLocaleString('pt-BR')};
 /* medalhas fixadas, no topo do Perfil (clicar leva à aba Conquistas) */
 function pinRow(p){const A=ACH(p),pins=A.pin.map(id=>BADGES.find(b=>b.id===id)).filter(Boolean);
   const slot=i=>{const b=pins[i];return b?`<div class="flex items-center gap-2 min-w-0 rounded-xl bg-ink border border-line pl-1.5 pr-3 py-1.5"><span class="rounded-full shrink-0" style="box-shadow:0 0 9px 2px color-mix(in srgb,${BTIER[b.t].c} 70%,transparent)">${medal(b,true,40)}</span><div class="min-w-0"><div class="text-sm font-semibold leading-tight truncate">${esc(b.n)}</div><div class="text-[10px]" style="color:${BTIER[b.t].c}">${BTIER[b.t].n}</div></div></div>`
@@ -3419,6 +3505,29 @@ function awSave(){const a=S.aw,n=(a.name||'').trim();if(!n){toast('Dê um nome')
   if(a.apply){const p=profile();p.rem=p.rem&&p.rem.d?p.rem:{on:false,t:'18:00',d:[],w:true,set:1};p.rem.d=a.dow.slice();p.rem.m={};a.dow.forEach(d=>{p.rem.m[d]='g'})}
   gySave();closeModal();render();toast('Programa criado');setTimeout(awProg,350)}
 /* ---------- execução guiada ---------- */
+/* ---------- mascote na academia ---------- */
+function gyPetOf(p){return p&&p.mascot&&MASCOTS[p.mascot]&&ownsItem(p,'mascot:'+p.mascot)?MASCOTS[p.mascot]:null}
+/* multiplicadores do momento (engrenagens/XP) e quais atributos estão ativos agora */
+function gyMul(g){const p=profile(),m=gyPetOf(p);if(!m)return{cm:1,xm:1,act:[],off:[]};
+  const fx=petFx(p),{it,x}=gyCur(),c={work:g.ph==='work',x,last:g.s>=it[1]};let cp=fx.coin||0,xp=fx.xp||0;const act=[],off=[];
+  m.fx.forEach(id=>{const F=GYM_FX[id];if(!F)return;if(F.on(c)){act.push(id);if(F.k==='t'){cp+=fx[id]||0;if(id!=='vel')xp+=fx[id]||0}}else off.push(id)});
+  return{cm:1+cp/100,xm:1+xp/100,act,off}}
+function gyPerSet(g){const p=profile();if(!gyPetOf(p))return;const fx=petFx(p);g.bc=(g.bc||0)+(fx.kmcoin||0);g.bx=(g.bx||0)+(fx.kmxp||0)}
+/* engrenagens e XP do treino (sem mascote = fórmula de sempre) */
+function gyNow(g,ok,secs){const p=profile();if(!gyPetOf(p))return gyRew(secs,ok);const fx=petFx(p),cb=1+(fx.coin||0)/100,xb=1+(fx.xp||0)/100,cc=fx.conc||0;
+  return{coins:Math.round((g.wc||0)/60000*GYM.coinMin+(g.bc||0)*cb+(ok?GYM.coinConc*(cb+cc/100):0)),xp:Math.round((g.wx||0)/60000*GYM.xpMin+(g.bx||0)*xb+(ok?GYM.xpConc*(xb+cc/100):0))}}
+/* mascote + foto no canto do título; tocar no mascote abre o pop-up de atributos */
+const gyWho=p=>`<div class="shrink-0 flex items-center gap-0.5"><button onclick="gyMas()" aria-label="Ver bônus do mascote" class="rounded-full active:opacity-80">${mascotXP(p,40,false)}</button>${avatarXP(p,34)}</div>`;
+function gyMas(){const g=S.gy;if(!g)return;g.pop=!g.pop;gyPop()}
+function gyPop(){const g=S.gy,old=$('#gy-pop');if(!g||!g.pop){if(old)old.remove();return}
+  const p=profile(),m=gyPetOf(p);let body='';
+  if(!m)body='<p class="text-sm text-zinc-300">Nenhum mascote equipado. Adote um na Loja para ganhar bônus nos treinos.</p>';
+  else if(!m.fx.length)body=`<p class="text-sm text-zinc-300">${esc(m.name)} não tem bônus: é só companhia.</p>`;
+  else{const fx=petFx(p),M=gyMul(g),row=id=>{const A=PET_ATTR[id],F=GYM_FX[id];return `<li class="flex items-start gap-2"><i data-lucide="${A.ic}" class="w-4 h-4 mt-0.5 text-emerald-300 shrink-0"></i><div class="min-w-0 flex-1"><div class="flex justify-between gap-2 text-sm font-semibold"><span class="truncate">${esc(A.n)}</span><span class="text-emerald-300 tabular-nums shrink-0">${gyTxt(id,fx[id]||0)}</span></div><div class="text-[11px] text-zinc-400 leading-snug">${esc(F.s)}</div></div></li>`};
+    body=`<div class="text-[10px] uppercase tracking-wider text-emerald-300 mb-1.5">Ativos agora</div><ul class="space-y-2">${M.act.map(row).join('')}</ul>${M.off.length?`<div class="text-[11px] text-zinc-500 mt-3 leading-snug">Em espera: ${M.off.map(id=>esc(PET_ATTR[id].n)).join(' · ')}</div>`:''}`}
+  const R=m&&RARITY[m.rar],html=`<div class="w-full max-w-xs rounded-2xl bg-panel border p-4 max-h-full overflow-hidden" style="border-color:${R?R.c+'99':'#1f3b57'}"><div class="flex items-center gap-3 mb-3">${mascotSlot(p,44)}<div class="min-w-0 flex-1"><div class="font-display text-xl font-bold leading-tight truncate">${m?esc(m.name):'Sem mascote'}</div>${m?`<div class="text-[11px] font-semibold" style="color:${R.c}">${R.n} · Nível ${petInfo(petXpOf(p,m.id)).l}</div>`:''}</div><button onclick="gyMas()" aria-label="Fechar" class="shrink-0 w-8 h-8 rounded-full border border-line grid place-items-center text-zinc-400"><i data-lucide="x" class="w-4 h-4"></i></button></div>${body}</div>`;
+  if(old)old.innerHTML=html;else{const el=document.createElement('div');el.id='gy-pop';el.className='absolute inset-0 z-10 bg-black/55 flex items-center justify-center p-5';el.setAttribute('onclick','if(event.target===this)gyMas()');el.innerHTML=html;const gp=$('#gyp');if(gp)gp.appendChild(el)}
+  lucide.createIcons()}
 function gyStart(id){if(S.gy)return;const w=gyWo(id);if(!w)return;
   if(woBusy()){toast('Finalize o treino de pedal antes');return}
   if(S.mr&&S.mr.ph!=='lobby'){toast('Saia da sala da Maratona antes');return}
@@ -3428,7 +3537,7 @@ function gyMount(){let el=$('#gyp');if(!el){el=document.createElement('div');el.
   el.className='fixed inset-0 z-[55] bg-ink flex flex-col';el.style.cssText='padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)';
   el.innerHTML=`<div class="shrink-0 px-3 py-2 border-b border-line flex items-center gap-2"><button onclick="gyQuit()" aria-label="Encerrar treino" class="p-2 rounded-lg border border-line text-zinc-300"><i data-lucide="x" class="w-5 h-5"></i></button>
    <div class="flex-1 min-w-0"><div id="gy-c" class="text-xs text-zinc-400 truncate text-center"></div>${gyTimeline()}</div>
-   <button id="gy-pb" onclick="gyPause()" aria-label="Pausar" class="p-2 rounded-lg border border-line text-zinc-300"></button></div><div id="gyb" class="flex-1 overflow-y-auto p-3"></div>`}
+   <button id="gy-pb" onclick="gyPause()" aria-label="Pausar" class="p-2 rounded-lg border border-line text-zinc-300"></button></div><div id="gyb" class="flex-1 min-h-0 overflow-hidden relative"></div>`}
 /* Linha do tempo do treino: um círculo por exercício, ligados por linhas que vão enchendo de branco conforme as séries são feitas (atualizada em gyPaint) */
 function gyTimeline(){const n=S.gy.w.it.length,d=n>14?9:n>10?11:14;
   return `<div id="gy-tl" class="flex items-center mt-2 px-1" aria-hidden="true">${S.gy.w.it.map((it,k)=>`<div class="gy-dot" style="flex:none;width:${d}px;height:${d}px;border-radius:50%;border:2px solid #52525b;background:transparent;transition:background .45s ease,border-color .45s ease,transform .45s ease"></div>`+(k<n-1?`<div class="bg-line" style="flex:1 1 0;min-width:4px;height:3px;border-radius:2px;overflow:hidden"><div class="gy-fill" style="height:100%;width:0%;background:#fff;transition:width .6s ease"></div></div>`:'')).join('')}</div>`}
@@ -3442,7 +3551,7 @@ function gyGo(ph){const g=S.gy,{it,x}=gyCur(),n=Date.now();g.ph=ph;g.cn=0;
   if(ph==='work')sfx('work');else if(ph==='rest')sfx('rest');gyPre()}
 function gyNext(){const g=S.gy;if(!g||g.paused)return;const{it,x}=gyCur(),last=g.i>=g.w.it.length-1;
   if(g.ph==='prep'){gyGo('work')}
-  else if(g.ph==='work'){g.sets++;if(g.s>=it[1]&&last){gyDone(true);return}gyGo('rest')}
+  else if(g.ph==='work'){g.sets++;gyPerSet(g);if(g.s>=it[1]&&last){gyDone(true);return}gyGo('rest')}
   else if(g.s<it[1]){g.s++;gyGo(x.t==='t'?'prep':'work')}
   else{g.i++;g.s=1;gyGo(gyCur().x.t==='t'?'prep':'work')}
   gyPaint()}
@@ -3452,43 +3561,44 @@ function gyPause(){const g=S.gy;if(!g)return;g.paused=!g.paused;
   sfx('pause');gyPaint()}
 function gyAdd15(){const g=S.gy;if(g&&g.end&&!g.paused)g.end+=15000}
 function gyTick(){const g=S.gy;if(!g)return;const now=Date.now(),dt=Math.min(1000,now-g.last),W=gyW();g.last=now;
-  if(!g.paused){if(g.ph==='work'){g.work+=dt;g.kc+=gyCur().x.m*W*dt/3.6e6}else{g.rest+=dt;g.kc+=GY_REST*W*dt/3.6e6}
+  if(!g.paused){{const M=gyMul(g);g.wc=(g.wc||0)+dt*M.cm;g.wx=(g.wx||0)+dt*M.xm}if(g.ph==='work'){g.work+=dt;g.kc+=gyCur().x.m*W*dt/3.6e6}else{g.rest+=dt;g.kc+=GY_REST*W*dt/3.6e6}
     if(g.end){const left=g.end-now;if(left<=0){gyNext();return}const c=Math.ceil(left/1000);if(c!==g.cn){g.cn=c;if(c<=3)sfx('count')}}}
   wakeOn();gyPaint()}
 function gyPaint(){const g=S.gy;if(!g)return;const k=g.i+':'+g.s+':'+g.ph+':'+g.paused;
-  if(k!==g.vk){g.vk=k;const b=$('#gyb');if(b){b.innerHTML=gyBody();b.scrollTop=0}const pb=$('#gy-pb');if(pb)pb.innerHTML=`<i data-lucide="${g.paused?'play':'pause'}" class="w-5 h-5"></i>`;lucide.createIcons()}
+  if(k!==g.vk){g.vk=k;const b=$('#gyb');if(b){b.innerHTML=gyBody();b.scrollTop=0}if(g.pop)gyPop();const pb=$('#gy-pb');if(pb)pb.innerHTML=`<i data-lucide="${g.paused?'play':'pause'}" class="w-5 h-5"></i>`;lucide.createIcons()}
   const secs=Math.round((g.work+g.rest)/1000),t=$('#gy-t');
   if(t&&(g.end||g.paused)){const s=Math.max(0,Math.ceil(((g.paused?g.rem:g.end-Date.now()))/1000));t.textContent=g.ph==='prep'||s<60?s:fmt(s)}
-  const c=$('#gy-c');if(c)c.textContent='Exercício '+(g.i+1)+'/'+g.w.it.length+' · '+fmt(secs)+' · '+Math.round(g.kc)+' kcal · +'+gyRew(secs,0).coins+' eng. · '+gyRew(secs,0).xp+' XP';
+  const c=$('#gy-c');if(c)c.textContent='Exercício '+(g.i+1)+'/'+g.w.it.length+' · '+fmt(secs)+' · '+Math.round(g.kc)+' kcal · +'+gyNow(g,0,secs).coins+' eng. · '+gyNow(g,0,secs).xp+' XP';
   gyTlPaint(g)}
-function gyBody(){const g=S.gy,{it,x}=gyCur(),nx=g.w.it[g.i+1],rest=g.ph==='rest',ne=rest?(g.s<it[1]?x:(nx?GY_BY[nx[0]]:x)):x,timed=x.t==='t',
-   btn=(f,l,ic,c='border border-line text-zinc-200')=>`<button onclick="${f}" class="flex-1 py-3 rounded-xl ${c} font-semibold flex items-center justify-center gap-2"><i data-lucide="${ic}" class="w-5 h-5"></i>${l}</button>`;
+function gyBody(){const g=S.gy,{it,x}=gyCur(),nx=g.w.it[g.i+1],rest=g.ph==='rest',ne=rest?(g.s<it[1]?x:(nx?GY_BY[nx[0]]:x)):x,timed=x.t==='t',p=profile(),
+   btn=(f,l,ic,c='border border-line text-zinc-200')=>`<button onclick="${f}" class="gy-b flex-1 py-3 rounded-xl ${c} font-semibold flex items-center justify-center gap-2"><i data-lucide="${ic}" class="w-5 h-5"></i>${l}</button>`;
   let main='';
-  if(g.paused)main=`<div class="text-center py-2"><div class="text-zinc-400 text-sm">Pausado</div><div id="gy-t" class="font-display text-7xl font-extrabold text-white tabular-nums leading-none">${g.rem?Math.ceil(g.rem/1000):''}</div></div><div class="flex gap-2">${btn('gyPause()','Continuar','play','bg-brand text-white')}</div>`;
-  else if(g.ph==='prep')main=`<div class="text-center py-2"><div class="text-ember text-sm font-semibold uppercase tracking-wider">Prepare-se</div><div id="gy-t" class="font-display text-8xl font-extrabold text-white tabular-nums leading-none">3</div></div>`;
-  else if(rest)main=`<div class="text-center py-2"><div class="text-neon text-sm font-semibold uppercase tracking-wider">Descanso</div><div id="gy-t" class="font-display text-8xl font-extrabold text-white tabular-nums leading-none">${it[3]!=null?it[3]:g.w.r}</div><div class="text-xs text-zinc-400 mt-1">A seguir: ${esc(ne.n)}${g.s<it[1]?' · série '+(g.s+1)+'/'+it[1]:''}</div></div><div class="flex gap-2">${btn('gyAdd15()','+15 s','plus')}${btn('gyNext()','Pular','skip-forward','bg-brand text-white')}</div>`;
-  else if(timed)main=`<div class="text-center py-2"><div class="text-emerald-300 text-sm font-semibold uppercase tracking-wider">Série ${g.s}/${it[1]}</div><div id="gy-t" class="font-display text-8xl font-extrabold text-white tabular-nums leading-none">${it[2]}</div><div class="text-xs text-zinc-400 mt-1">segundos</div></div><div class="flex gap-2">${btn('gyNext()','Concluir série','check','bg-brand text-white')}</div>`;
-  else main=`<div class="text-center py-2"><div class="text-emerald-300 text-sm font-semibold uppercase tracking-wider">Série ${g.s}/${it[1]}</div><div class="font-display text-8xl font-extrabold text-white tabular-nums leading-none">${it[2]}</div><div class="text-sm text-zinc-400 mt-1">repetições</div></div><div class="flex gap-2">${btn('gyNext()','Série concluída','check','bg-brand text-white')}</div>`;
-  return `<div class="max-w-xl mx-auto space-y-3">${gyAnim(ne.id)}<div><h2 class="font-display text-3xl font-bold leading-tight">${esc(ne.n)}</h2><div class="flex gap-1.5 flex-wrap mt-1.5"><span class="px-2 py-0.5 rounded-full border border-line text-xs">${GY_G[ne.g]}</span><span class="px-2 py-0.5 rounded-full border border-line text-xs">${gyEq(ne)}</span></div></div>
-   ${main}<p class="text-sm text-zinc-300">${esc(gyTip(ne))}</p>
-   <div class="flex gap-2 pt-1">${g.i>0?btn('gyJump(-1)','Anterior','chevron-left'):''}${btn('gyJump(1)',g.i<g.w.it.length-1?'Pular exercício':'Finalizar','chevron-right')}</div></div>`}
+  if(g.paused)main=`<div class="text-center"><div class="text-zinc-400 text-sm">Pausado</div><div id="gy-t" class="font-display gy-big font-extrabold text-white tabular-nums leading-none">${g.rem?Math.ceil(g.rem/1000):''}</div></div><div class="flex gap-2">${btn('gyPause()','Continuar','play','bg-brand text-white')}</div>`;
+  else if(g.ph==='prep')main=`<div class="text-center"><div class="text-ember text-sm font-semibold uppercase tracking-wider">Prepare-se</div><div id="gy-t" class="font-display gy-big font-extrabold text-white tabular-nums leading-none">3</div></div>`;
+  else if(rest)main=`<div class="text-center"><div class="text-neon text-sm font-semibold uppercase tracking-wider">Descanso</div><div id="gy-t" class="font-display gy-big font-extrabold text-white tabular-nums leading-none">${it[3]!=null?it[3]:g.w.r}</div><div class="text-xs text-zinc-400 mt-1">A seguir: ${esc(ne.n)}${g.s<it[1]?' · série '+(g.s+1)+'/'+it[1]:''}</div></div><div class="flex gap-2">${btn('gyAdd15()','+15 s','plus')}${btn('gyNext()','Pular','skip-forward','bg-brand text-white')}</div>`;
+  else if(timed)main=`<div class="text-center"><div class="text-emerald-300 text-sm font-semibold uppercase tracking-wider">Série ${g.s}/${it[1]}</div><div id="gy-t" class="font-display gy-big font-extrabold text-white tabular-nums leading-none">${it[2]}</div><div class="text-xs text-zinc-400 mt-1">segundos</div></div><div class="flex gap-2">${btn('gyNext()','Concluir série','check','bg-brand text-white')}</div>`;
+  else main=`<div class="text-center"><div class="text-emerald-300 text-sm font-semibold uppercase tracking-wider">Série ${g.s}/${it[1]}</div><div class="font-display gy-big font-extrabold text-white tabular-nums leading-none">${it[2]}</div><div class="text-sm text-zinc-400 mt-1">repetições</div></div><div class="flex gap-2">${btn('gyNext()','Série concluída','check','bg-brand text-white')}</div>`;
+  return `<div class="gyw"><div class="gyscr"><div class="gy-top flex items-center gap-2"><div class="min-w-0 flex-1"><h2 class="font-display text-2xl sm:text-3xl font-bold leading-tight" style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden">${esc(ne.n)}</h2><div class="flex gap-1.5 flex-wrap mt-1"><span class="px-2 py-0.5 rounded-full border border-line text-xs">${GY_G[ne.g]}</span><span class="px-2 py-0.5 rounded-full border border-line text-xs">${gyEq(ne)}</span></div></div>${gyWho(p)}</div>
+   <div class="gy-art">${gyAnim(ne.id)}</div>
+   <div class="gy-low">${main}<p class="gy-tip text-sm text-zinc-300">${esc(gyTip(ne))}</p>
+   <div class="flex gap-2">${g.i>0?btn('gyJump(-1)','Anterior','chevron-left'):''}${btn('gyJump(1)',g.i<g.w.it.length-1?'Pular exercício':'Finalizar','chevron-right')}</div></div></div></div>`}
 function gyQuit(){const g=S.gy;if(!g)return;const ok=g.sets>0&&(g.work+g.rest)/1000>=30;
   if(!confirm(ok?'Encerrar o treino agora? O que você já fez será salvo.':'Sair do treino? Nada será salvo.'))return;
   if(ok)gyDone(false);else{clearInterval(gyT);S.gy=null;wakeOff();const el=$('#gyp');if(el)el.remove()}}
 function gyDone(ok){const g=S.gy;if(!g)return;clearInterval(gyT);S.gy=null;wakeOff();const el=$('#gyp');if(el)el.remove();
   const p=profile(),secs=Math.round((g.work+g.rest)/1000),kcal=Math.round(g.kc);
   if(secs<30||g.sets<1){toast('Treino muito curto para ser salvo');render();return}
-  const{coins,xp}=gyRew(secs,ok),
+  const{coins,xp}=gyNow(g,ok,secs),
    gm=G(p),xp0=gm.xp,lv0=lvInfo(gm.xp).l;gm.coins+=coins;gm.xp+=xp;const lv1=lvInfo(gm.xp).l,
    eq=(p.mascot&&MASCOTS[p.mascot]&&ownsItem(p,'mascot:'+p.mascot))?p.mascot:'';let pet=null;
   if(eq){const px=Math.round(xp*(1+(petFx(p).pxp||0)/100)),M=PD(p),o=M[eq]||(M[eq]={xp:0}),x0=+o.xp||0,l0=petInfo(x0).l;o.xp=x0+px;pet={id:eq,xp:px,l0,l1:petInfo(o.xp).l,x0,x1:o.xp}}
-  const y=gyD(p);y.log.unshift({id:uid(),d:Date.now(),w:g.w.id,n:g.w.n,t:secs,k:kcal,s:g.sets,ok:ok?1:0});if(y.log.length>120)y.log.length=120;
-  gySave();const res={mascot:eq,xp0,xp1:gm.xp,xp,coins,lv0,lv1,pet,badges:[]};
+  ACH(p);const y=gyD(p);y.log.unshift({id:uid(),d:Date.now(),w:g.w.id,n:g.w.n,t:secs,k:kcal,s:g.sets,ok:ok?1:0});if(y.log.length>120)y.log.length=120;
+  const badges=achGym(p,g,ok,secs,kcal,!!eq,!!g.w.pg&&ok);gySave();const res={mascot:eq,xp0,xp1:gm.xp,xp,coins,lv0,lv1,pet,badges,mb:{c:coins-gyRew(secs,ok).coins,x:xp-gyRew(secs,ok).xp}};
   render();sfx(ok?'win':'end');setTimeout(()=>gyResult(res,{ok,secs,kcal,sets:g.sets,n:g.w.n,ex:g.w.it.length,pg:!!g.w.pg&&ok}),300)}
 function gyResult(r,s){haptic('level');
   openModal(`<div class="text-center py-2">${sumHead()}<div class="text-[11px] uppercase tracking-wider text-zinc-400">${esc(s.n)}</div><h2 class="font-display text-4xl font-bold ${s.ok?'text-emerald-300':'text-white'}">${s.ok?'Treino concluído!':'Treino salvo'}</h2>
    <div class="grid grid-cols-2 gap-2 my-4 text-center">${[['Tempo',fmt(s.secs)],['Calorias',s.kcal.toLocaleString('pt-BR')+' kcal'],['Séries',s.sets],['Engrenagens','+'+r.coins.toLocaleString('pt-BR')]].map(x=>`<div class="rounded-lg bg-ink border border-line p-2"><div class="text-[11px] text-zinc-400">${x[0]}</div><div class="font-display text-xl font-bold text-neon">${x[1]}</div></div>`).join('')}</div>
-   ${xpLines(r)}${xpBars(r)}${extrasHtml(r)}${s.pg?awFbHtml():''}<button onclick="closeModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Continuar</button></div>`,'max-w-sm')}
+   ${xpLines(r)}${r.mb&&(r.mb.c>0||r.mb.x>0)&&r.mascot&&MASCOTS[r.mascot]?`<div class="text-xs text-zinc-300 mb-3">${MASCOTS[r.mascot].icon} Bônus do mascote: +${r.mb.c.toLocaleString('pt-BR')} engrenagens · +${r.mb.x.toLocaleString('pt-BR')} XP</div>`:''}${xpBars(r)}${extrasHtml(r)}${s.pg?awFbHtml():''}<button onclick="closeModal()" class="w-full py-3 rounded-xl bg-brand text-white font-semibold">Continuar</button></div>`,'max-w-sm')}
 /* Rolagem do fundo travada enquanto houver janela em primeiro plano (pop-ups em #modal, treino guiado da academia #gyp, contagem 3-2-1).
    Só a própria janela pode rolar; os ouvintes de wheel/touchmove existem apenas enquanto a trava está ativa. */
 (function(){
